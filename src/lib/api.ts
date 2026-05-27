@@ -82,4 +82,10 @@ export const patients = {
       `/api/agent/patients/${patient_id}/recent-appointments/`,
     );
   },
+  promoteVisit(visit_id: string) {
+    return call<{ appointment_id: string; created: boolean }>(
+      `/api/agent/visits/${visit_id}/promote/`,
+      { method: 'POST' },
+    );
+  },
 };

@@ -17,6 +17,7 @@ export interface Patient {
 
 export interface Appointment {
   id: string;
+  kind?: 'appointment' | 'visit';
   date: string;
   doctor_name: string;
   department: string;

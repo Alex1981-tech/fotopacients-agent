@@ -36,12 +36,25 @@ export function CTMode({ nodeId }: { nodeId: string }) {
       setTimeout(() => setFlash(''), 3000);
       return;
     }
+    // Якщо обрано Visit (а не Appointment) — спочатку конвертуємо у Appointment
+    let apptId = pickedAppt;
+    const picked = appts.find(a => a.id === pickedAppt);
+    if (picked?.kind === 'visit') {
+      try {
+        const r = await patients.promoteVisit(picked.id);
+        apptId = r.appointment_id;
+      } catch (e: any) {
+        setFlash(`Помилка: ${e?.message || 'не вдалось створити прийом з візиту'}`);
+        setTimeout(() => setFlash(''), 4000);
+        return;
+      }
+    }
     for (const path of paths) {
       await queue.addFile(path, {
         mode: 'ct',
         patient_id: patient.id,
         patient_name: patient.full_name,
-        appointment_id: pickedAppt,
+        appointment_id: apptId,
         node_id: nodeId,
       });
     }
