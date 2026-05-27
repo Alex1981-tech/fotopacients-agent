@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { PatientSearch } from '../components/PatientSearch';
 import { patients } from '../lib/api';
+import { onTauriDrop } from '../lib/drop';
 import { queue } from '../lib/upload';
 import type { Appointment, Patient } from '../lib/types';
 
@@ -10,6 +11,7 @@ export function CTMode({ nodeId }: { nodeId: string }) {
   const [appts, setAppts] = useState<Appointment[]>([]);
   const [pickedAppt, setPickedAppt] = useState<string>('');
   const [loadingAppts, setLoadingAppts] = useState(false);
+  const [flash, setFlash] = useState('');
 
   useEffect(() => {
     if (!patient) { setAppts([]); setPickedAppt(''); return; }
@@ -24,7 +26,16 @@ export function CTMode({ nodeId }: { nodeId: string }) {
   }, [patient]);
 
   const handleFiles = async (paths: string[]) => {
-    if (!patient || !pickedAppt) return;
+    if (!patient) {
+      setFlash('Спершу оберіть пацієнта');
+      setTimeout(() => setFlash(''), 3000);
+      return;
+    }
+    if (!pickedAppt) {
+      setFlash('Оберіть прийом для прив\'язки');
+      setTimeout(() => setFlash(''), 3000);
+      return;
+    }
     for (const path of paths) {
       await queue.addFile(path, {
         mode: 'ct',
@@ -34,7 +45,12 @@ export function CTMode({ nodeId }: { nodeId: string }) {
         node_id: nodeId,
       });
     }
+    setFlash(`Додано в чергу: ${paths.length}`);
+    setTimeout(() => setFlash(''), 2500);
   };
+
+  // Tauri v2 drag-drop (HTML5 onDrop не працює у webview)
+  useEffect(() => onTauriDrop(handleFiles), [patient, pickedAppt, nodeId]);
 
   const onClickPick = async () => {
     const selected = await open({
@@ -49,60 +65,50 @@ export function CTMode({ nodeId }: { nodeId: string }) {
   const reset = () => { setPatient(null); setAppts([]); setPickedAppt(''); };
 
   return (
-    <div className="ct-mode">
-      {!patient ? (
-        <PatientSearch onPick={setPatient} />
-      ) : (
-        <>
-          <div className="picked-patient">
-            <div>
-              <strong>{patient.full_name}</strong>
-              <div className="meta">картка {patient.card_number}</div>
+    <div className="mode-layout">
+      <div className="mode-scroll">
+        {!patient ? (
+          <PatientSearch onPick={setPatient} />
+        ) : (
+          <>
+            <div className="picked-patient">
+              <div>
+                <strong>{patient.full_name}</strong>
+                <div className="meta">картка {patient.card_number}</div>
+              </div>
+              <button className="link" onClick={reset}>Інший пацієнт</button>
             </div>
-            <button className="link" onClick={reset}>Інший пацієнт</button>
-          </div>
 
-          <div className="appt-pick">
-            <div className="label">Прийом для прив'язки КТ:</div>
-            {loadingAppts && <div className="hint">Завантажуємо…</div>}
-            {!loadingAppts && appts.length === 0 && <div className="hint">Прийомів немає</div>}
-            {appts.map(a => (
-              <label key={a.id} className="appt-row">
-                <input
-                  type="radio"
-                  name="appt"
-                  checked={pickedAppt === a.id}
-                  onChange={() => setPickedAppt(a.id)}
-                />
-                <span>
-                  {new Date(a.date).toLocaleString('uk-UA')} · {a.doctor_name} · {a.procedure || '—'}
-                </span>
-              </label>
-            ))}
-          </div>
+            <div className="appt-pick">
+              <div className="label">Прийом для прив'язки КТ:</div>
+              {loadingAppts && <div className="hint">Завантажуємо…</div>}
+              {!loadingAppts && appts.length === 0 && <div className="hint">Прийомів немає</div>}
+              {appts.map(a => (
+                <label key={a.id} className="appt-row">
+                  <input
+                    type="radio"
+                    name="appt"
+                    checked={pickedAppt === a.id}
+                    onChange={() => setPickedAppt(a.id)}
+                  />
+                  <span>
+                    {new Date(a.date).toLocaleString('uk-UA')} · {a.doctor_name} · {a.procedure || '—'}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
 
-          <div
-            className="dropzone"
-            onClick={onClickPick}
-            onDragOver={e => e.preventDefault()}
-            onDrop={e => {
-              e.preventDefault();
-              const paths: string[] = [];
-              const list = e.dataTransfer.files;
-              // Tauri передає file.path як non-standard property
-              for (let i = 0; i < list.length; i++) {
-                const f = list[i] as File & { path?: string };
-                if (f.path) paths.push(f.path);
-              }
-              if (paths.length) handleFiles(paths);
-            }}
-          >
-            <div className="dz-icon">📦</div>
-            <div>Перетягніть архів КТ сюди або клікніть</div>
-            <div className="dz-hint">.zip · .rar · .7z · .isz · до 3 ГБ</div>
-          </div>
-        </>
-      )}
+      <div className="mode-dock">
+        {flash && <div className="dock-flash">{flash}</div>}
+        <div className="dropzone" onClick={onClickPick}>
+          <div className="dz-icon">📦</div>
+          <div>Перетягніть архів КТ сюди або клікніть</div>
+          <div className="dz-hint">.zip · .rar · .7z · .isz · до 3 ГБ</div>
+        </div>
+      </div>
     </div>
   );
 }
