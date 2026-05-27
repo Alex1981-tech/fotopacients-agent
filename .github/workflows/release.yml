@@ -13,18 +13,23 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
       - name: Install frontend dependencies
         run: npm ci
+
       - name: Build Tauri app
         id: tauri
         uses: tauri-apps/tauri-action@v0.6
@@ -35,7 +40,73 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: FotoPacients Agent v__VERSION__
-          releaseBody: 'Нова версія FotoPacients Agent для Windows.'
+          releaseBody: 'Нова версія FotoPacients Agent для Windows. Auto-update.'
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: false
+
+      # Генеруємо latest.json для tauri-plugin-updater. Без цього файлу
+      # клієнти не побачать оновлення (плагін очікує саме такий формат).
+      - name: Generate and upload latest.json
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $tag = "v$version"
+          $bundleDir = "src-tauri/target/release/bundle/nsis"
+          # Шукаємо .exe NSIS-інсталер (ім'я залежить від productName)
+          $nsisExe = Get-ChildItem -Path $bundleDir -Filter "*_x64-setup.exe" | Select-Object -First 1
+          if (-not $nsisExe) {
+            Write-Host "NSIS exe not found in $bundleDir"
+            Get-ChildItem -Path $bundleDir -Recurse | ForEach-Object { Write-Host $_.FullName }
+            exit 0
+          }
+          Write-Host "Found installer: $($nsisExe.FullName)"
+
+          # Створюємо .nsis.zip (Store/NoCompression — для max compatibility з updater)
+          $nsisZipName = $nsisExe.BaseName + ".nsis.zip"
+          $nsisZipPath = Join-Path $nsisExe.DirectoryName $nsisZipName
+          Add-Type -Assembly System.IO.Compression
+          Add-Type -Assembly System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::Open($nsisZipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+          [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $nsisExe.FullName, $nsisExe.Name, [System.IO.Compression.CompressionLevel]::NoCompression)
+          $zip.Dispose()
+          Write-Host "Created nsis.zip: $((Get-Item $nsisZipPath).Length) bytes"
+
+          # Підписуємо .nsis.zip
+          npx tauri signer sign $nsisZipPath
+          $sigPath = "${nsisZipPath}.sig"
+          if (-not (Test-Path $sigPath)) {
+            Write-Host "Signing failed — .sig not produced"
+            exit 0
+          }
+          $sig = (Get-Content $sigPath -Raw).Trim()
+
+          $pubDate = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
+          # URL-кодуємо ім'я файлу для GitHub Releases (пробіли тощо)
+          $nsisZipUrlName = [System.Uri]::EscapeDataString($nsisZipName)
+          $releaseUrl = "https://github.com/${{ github.repository }}/releases/download/$tag"
+
+          $json = @{
+            version = $version
+            notes = "FotoPacients Agent $tag"
+            pub_date = $pubDate
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $sig
+                url = "$releaseUrl/$nsisZipUrlName"
+              }
+            }
+          } | ConvertTo-Json -Depth 4
+
+          $latestPath = "latest.json"
+          $json | Out-File -FilePath $latestPath -Encoding utf8NoBOM
+          Write-Host "Generated latest.json:"
+          Get-Content $latestPath
+
+          # Завантажуємо .nsis.zip і latest.json у реліз
+          gh release upload $tag $nsisZipPath $latestPath --clobber
+          Write-Host "Uploaded latest.json + nsis.zip for $tag"

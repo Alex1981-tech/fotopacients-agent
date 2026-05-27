@@ -7,6 +7,7 @@ import { AnalysisMode } from './modes/AnalysisMode';
 import { setApi } from './lib/api';
 import { pickFastest, type NodeProbe } from './lib/node-picker';
 import { getSettings, setSetting } from './lib/store';
+import { startAutoUpdate, checkForUpdates } from './lib/updater';
 import type { AuthUser, Mode } from './lib/types';
 
 type Tab = 'main' | 'queue' | 'settings';
@@ -48,6 +49,12 @@ export function App() {
     }, 30_000);
     return () => clearInterval(t);
   }, [node, token]);
+
+  // 3) Auto-update: перевірка через 30 с після старту + кожні 6 годин
+  useEffect(() => {
+    const stop = startAutoUpdate();
+    return stop;
+  }, []);
 
   const handleLogin = async (tok: string, u: AuthUser) => {
     setToken(tok); setUser(u);
