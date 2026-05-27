@@ -25,6 +25,15 @@ fn hide_window(app: AppHandle) {
     }
 }
 
+/// Повертає першу не-loopback IPv4 LAN-адресу клієнтського ПК.
+/// Потрібно агенту щоб вибрати ноду в ТІЙ самій підмережі (priority over
+/// швидших нод доступних через IPsec — щоб не йти через тунель коли є локальна).
+#[tauri::command]
+fn get_local_ip() -> Option<String> {
+    use local_ip_address::local_ip;
+    local_ip().ok().map(|ip| ip.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -88,7 +97,7 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .invoke_handler(tauri::generate_handler![show_window, hide_window])
+        .invoke_handler(tauri::generate_handler![show_window, hide_window, get_local_ip])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

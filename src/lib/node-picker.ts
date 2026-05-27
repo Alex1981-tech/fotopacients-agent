@@ -1,4 +1,5 @@
 import { fetch } from '@tauri-apps/plugin-http';
+import { invoke } from '@tauri-apps/api/core';
 import type { Node } from './types';
 import { getSettings, setSetting } from './store';
 
@@ -72,6 +73,23 @@ async function loadNodes(): Promise<RawNode[]> {
   return [{ id: 'fallback', label: 'Discovery', ts_url: discoveryUrl }];
 }
 
+function subnet24(ip: string): string {
+  // '192.168.91.92' → '192.168.91'
+  const parts = ip.split('.');
+  return parts.length >= 3 ? parts.slice(0, 3).join('.') : '';
+}
+
+function urlHost(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch { return ''; }
+}
+
+async function getLocalIp(): Promise<string | null> {
+  try { return await invoke<string | null>('get_local_ip'); }
+  catch { return null; }
+}
+
 export async function pingAll(): Promise<NodeProbe[]> {
   const nodes = await loadNodes();
   const probes: Promise<NodeProbe | null>[] = [];
@@ -92,7 +110,35 @@ export async function pingAll(): Promise<NodeProbe[]> {
   return [...byNode.values()].sort((a, b) => a.ms - b.ms);
 }
 
+/**
+ * Виборка ноди: «своя» клінічна підмережа в пріоритеті.
+ *
+ * Логіка:
+ * 1. Дізнаємось локальну LAN-IP клієнтського ПК.
+ * 2. Серед нод знаходимо ту, у якої lan_url у ТІЙ САМІЙ /24 підмережі — це
+ *    «домашня нода» для цієї клініки. Беремо її навіть якщо чужа через
+ *    IPsec відповідає швидше (не хочемо ганяти трафік через тунель коли
+ *    локальна доступна).
+ * 3. Якщо домашньої не знайдено (агент стоїть в іншій мережі) — fallback
+ *    на найшвидшу за ping.
+ */
 export async function pickFastest(): Promise<NodeProbe | null> {
+  const localIp = await getLocalIp();
+  const myNet = localIp ? subnet24(localIp) : '';
+
+  if (myNet) {
+    // Спершу пробуємо лише «свою» ноду — якщо вона жива, повертаємо
+    const nodes = await loadNodes();
+    const home = nodes.find(n => subnet24(urlHost(n.lan_url || '')) === myNet);
+    if (home && home.lan_url) {
+      const ms = await probe(home.lan_url);
+      if (ms !== null) {
+        return { node: { ...home, url: home.lan_url }, url: home.lan_url, ms };
+      }
+    }
+  }
+
+  // Fallback — ping всіх, повертаємо найшвидшу
   const all = await pingAll();
   return all[0] ?? null;
 }
