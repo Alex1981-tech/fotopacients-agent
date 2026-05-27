@@ -15,6 +15,16 @@ export function AnalysisMode({ nodeId }: { nodeId: string }) {
       setTimeout(() => setFlash(''), 3000);
       return;
     }
+    // Захист: КТ-архіви не повинні попадати у Analysis-режим — їх
+    // не оброблятиме process_ct_zip (без зрізів та панорами).
+    const CT_EXT = /\.(zip|rar|7z|isz)$/i;
+    const ctFiles = paths.filter(p => CT_EXT.test(p));
+    if (ctFiles.length) {
+      const names = ctFiles.map(p => p.split(/[\\/]/).pop()).join(', ');
+      setFlash(`Це КТ-архів (${names}). Перемкніть режим у Налаштування → КТ`);
+      setTimeout(() => setFlash(''), 6000);
+      return;
+    }
     for (const path of paths) {
       await queue.addFile(path, {
         mode: 'analysis',
@@ -32,7 +42,17 @@ export function AnalysisMode({ nodeId }: { nodeId: string }) {
   const onClickPick = async () => {
     const selected = await open({
       multiple: true,
-      filters: [{ name: 'Аналізи', extensions: ['jpg', 'jpeg', 'png', 'webp', 'heic', 'pdf'] }],
+      filters: [
+        { name: 'Аналізи (всі)', extensions: [
+          'jpg', 'jpeg', 'jfif', 'png', 'gif', 'webp', 'heic', 'heif', 'avif',
+          'tif', 'tiff', 'bmp',
+          'pdf', 'doc', 'docx', 'odt', 'rtf', 'txt',
+          'xls', 'xlsx', 'ods', 'csv',
+        ] },
+        { name: 'Фото', extensions: ['jpg', 'jpeg', 'png', 'heic', 'webp', 'tif', 'tiff'] },
+        { name: 'PDF', extensions: ['pdf'] },
+        { name: 'Документи', extensions: ['doc', 'docx', 'odt', 'rtf', 'txt', 'xls', 'xlsx'] },
+      ],
     });
     if (!selected) return;
     const paths = Array.isArray(selected) ? selected : [selected];
