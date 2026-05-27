@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { pingAll, type NodeProbe } from '../lib/node-picker';
 import { clearAuth, setMode } from '../lib/store';
-import { checkForUpdates } from '../lib/updater';
 import { getVersion } from '@tauri-apps/api/app';
 import type { AuthUser, Mode } from '../lib/types';
 
@@ -19,7 +18,6 @@ export function Settings({ mode, user, currentNode, onModeChange, onNodesRefresh
   const [autostart, setAutostart] = useState(false);
   const [nodes, setNodes] = useState<NodeProbe[]>([]);
   const [version, setVersion] = useState('');
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   const [err, setErr] = useState('');
 
@@ -28,13 +26,6 @@ export function Settings({ mode, user, currentNode, onModeChange, onNodesRefresh
     pingAll().then(setNodes).catch((e) => { console.error('[pingAll]', e); setNodes([]); });
     getVersion().then(setVersion).catch(() => setVersion(''));
   }, []);
-
-  const checkUpdates = async () => {
-    setErr(''); setCheckingUpdate(true);
-    try { await checkForUpdates(false); }
-    catch (e: any) { setErr(`Updater: ${e?.message || e}`); }
-    finally { setCheckingUpdate(false); }
-  };
 
   const toggleAutostart = async () => {
     setErr('');
@@ -109,13 +100,11 @@ export function Settings({ mode, user, currentNode, onModeChange, onNodesRefresh
 
       <section>
         <h3>Версія</h3>
-        <div className="row">
-          <div className="muted">FotoPacients Agent v{version}</div>
-          <button className="btn-secondary" onClick={checkUpdates} disabled={checkingUpdate}>
-            {checkingUpdate ? 'Перевіряємо…' : 'Перевірити оновлення'}
-          </button>
+        <div className="muted">FotoPacients Agent v{version}</div>
+        <div className="muted small">
+          Оновлення встановлюються автоматично при наявності — програма
+          перезавантажиться коли черга задач звільниться.
         </div>
-        <div className="muted small">Оновлення приходять автоматично кожні 6 годин — переустанавлювати не потрібно.</div>
       </section>
     </div>
   );

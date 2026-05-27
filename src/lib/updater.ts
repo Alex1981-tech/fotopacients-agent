@@ -1,60 +1,69 @@
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { sendNotification, isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification';
+import { queue } from './upload';
 
-const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 годин
+const CHECK_INTERVAL_MS = 60 * 60 * 1000;     // 1 година
+const IDLE_POLL_MS = 5_000;                   // як часто перевіряти що черга порожня
+const IDLE_MAX_WAIT_MS = 30 * 60 * 1000;      // максимум 30 хв чекаємо черги; якщо не дочекались — лишаємо до наступного check
 
-async function notify(title: string, body: string) {
-  try {
-    let perm = await isPermissionGranted();
-    if (!perm) perm = (await requestPermission()) === 'granted';
-    if (perm) sendNotification({ title, body });
-  } catch { /* ignore — нотифікації не критичні */ }
+let pendingRelaunch = false;
+
+function activeTasksCount(): number {
+  return queue.list().filter(t => t.status === 'uploading' || t.status === 'queued').length;
+}
+
+async function waitForIdle(maxMs: number): Promise<boolean> {
+  if (activeTasksCount() === 0) return true;
+  return new Promise<boolean>(resolve => {
+    const deadline = Date.now() + maxMs;
+    const tick = () => {
+      if (activeTasksCount() === 0) return resolve(true);
+      if (Date.now() > deadline) return resolve(false);
+      setTimeout(tick, IDLE_POLL_MS);
+    };
+    setTimeout(tick, IDLE_POLL_MS);
+  });
 }
 
 /**
- * Перевіряє наявність оновлення. Якщо є — тихо завантажує + інсталює +
- * перезапускає програму. Користувач бачить нотифікацію перед рестартом.
+ * Тихий чек і автоінсталь. Без жодних notification / popup-ів.
+ * Якщо новинки нема — мовчки повертається.
+ * Якщо є — завантажує і інсталює.
+ * Перезапуск ТІЛЬКИ коли upload-черга порожня (не уриваємо активні
+ * завантаження). Якщо за 30 хв черга не звільнилась — лишаємо
+ * pendingRelaunch=true і при наступному idle-check перезапускаємось.
  */
-export async function checkForUpdates(silent = false): Promise<void> {
+export async function checkForUpdates(): Promise<void> {
   try {
-    const update = await check();
-    if (!update) {
-      if (!silent) await notify('FotoPacients Agent', 'Встановлена остання версія');
+    // Якщо вже є downloaded update що чекає relaunch — просто try relaunch
+    if (pendingRelaunch) {
+      if (await waitForIdle(IDLE_MAX_WAIT_MS)) {
+        await relaunch();
+      }
       return;
     }
-    await notify(
-      `Оновлення ${update.version}`,
-      'Завантажуємо нову версію FotoPacients Agent…',
-    );
-    let downloaded = 0;
-    let contentLength = 0;
-    await update.downloadAndInstall(event => {
-      if (event.event === 'Started') {
-        contentLength = event.data.contentLength ?? 0;
-      } else if (event.event === 'Progress') {
-        downloaded += event.data.chunkLength;
-      } else if (event.event === 'Finished') {
-        // ready to relaunch
-      }
-      void downloaded; void contentLength;
-    });
-    await notify('Готово', 'Перезапуск для застосування оновлення…');
-    // Коротка пауза щоб юзер встиг побачити нотифікацію
-    setTimeout(() => { void relaunch(); }, 1500);
+    const update = await check();
+    if (!update) return;
+    console.info(`[updater] new version: ${update.version}`);
+    await update.downloadAndInstall();
+    pendingRelaunch = true;
+    if (await waitForIdle(IDLE_MAX_WAIT_MS)) {
+      await relaunch();
+    } else {
+      console.info('[updater] queue busy; relaunch postponed to next idle window');
+    }
   } catch (e) {
     console.error('[updater] check failed:', e);
-    if (!silent) await notify('FotoPacients Agent', 'Перевірити оновлення не вдалося');
   }
 }
 
 /**
- * Запускає періодичну перевірку оновлень кожні 6 годин у фоні.
- * Перший виклик — через 30 с після старту (щоб не блокувати UI на стартовому
- * пінгу нод/login). Повертає cleanup-функцію.
+ * Перший виклик одразу при mount + кожну годину.
+ * Cleanup при unmount.
  */
 export function startAutoUpdate(): () => void {
-  const firstCheck = setTimeout(() => { void checkForUpdates(true); }, 30_000);
-  const periodic = setInterval(() => { void checkForUpdates(true); }, CHECK_INTERVAL_MS);
-  return () => { clearTimeout(firstCheck); clearInterval(periodic); };
+  // Невеличка затримка щоб не блокувати UI startup ping/login
+  const initial = setTimeout(() => { void checkForUpdates(); }, 5_000);
+  const periodic = setInterval(() => { void checkForUpdates(); }, CHECK_INTERVAL_MS);
+  return () => { clearTimeout(initial); clearInterval(periodic); };
 }
