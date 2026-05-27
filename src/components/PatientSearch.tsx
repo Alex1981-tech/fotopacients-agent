@@ -71,7 +71,7 @@ export function PatientSearch({ onPick }: { onPick: (p: Patient) => void }) {
             type="text"
             value={fio}
             onChange={e => onFio(e.target.value)}
-            placeholder="Кузьменко або +380…"
+            placeholder="Прізвище або +380…"
           />
         </div>
       </div>
