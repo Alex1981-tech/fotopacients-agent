@@ -97,12 +97,15 @@ class UploadQueue {
     try {
       const api = getApi();
       if (!api.baseUrl || !api.token) throw new Error('Не авторизовано');
+      // CT endpoint очікує одне поле `file` з ZIP/RAR;
+      // analysis endpoint — масив `photos[]`.
+      const fieldName = task.mode === 'ct' ? 'file' : 'photos';
       const form = new FormData();
       for (const f of task.files) {
         const bytes = await readFile(f.path);
         // Гарантуємо ArrayBuffer (Blob не приймає Uint8Array на ArrayBufferLike напряму)
         const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-        form.append('photos', new Blob([buf]), f.name);
+        form.append(fieldName, new Blob([buf]), f.name);
       }
       const path = task.mode === 'ct'
         ? `/api/appointments/${task.appointment_id}/ct-upload/`
