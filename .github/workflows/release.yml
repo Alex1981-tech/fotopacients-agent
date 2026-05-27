@@ -1,0 +1,98 @@
+
+name: Release FotoPacients Agent
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Tauri app
+        id: tauri
+        uses: tauri-apps/tauri-action@v0.6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        with:
+          tagName: v__VERSION__
+          releaseName: FotoPacients Agent v__VERSION__
+          releaseBody: 'Нова версія FotoPacients Agent для Windows. Auto-update.'
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: false
+
+      - name: Generate and upload latest.json
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $tag = "v$version"
+          $bundleDir = "src-tauri/target/release/bundle/nsis"
+          $nsisExe = Get-ChildItem -Path $bundleDir -Filter "*_x64-setup.exe" | Select-Object -First 1
+          if (-not $nsisExe) {
+            Write-Host "NSIS exe not found in $bundleDir"
+            exit 0
+          }
+
+          $nsisZipName = $nsisExe.BaseName + ".nsis.zip"
+          $nsisZipPath = Join-Path $nsisExe.DirectoryName $nsisZipName
+          Add-Type -Assembly System.IO.Compression
+          Add-Type -Assembly System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::Open($nsisZipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+          [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $nsisExe.FullName, $nsisExe.Name, [System.IO.Compression.CompressionLevel]::NoCompression)
+          $zip.Dispose()
+
+          npx tauri signer sign $nsisZipPath
+          $sigPath = "${nsisZipPath}.sig"
+          if (-not (Test-Path $sigPath)) {
+            Write-Host "Signing failed"
+            exit 0
+          }
+          $sig = (Get-Content $sigPath -Raw).Trim()
+
+          $pubDate = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
+          $nsisZipUrlName = [System.Uri]::EscapeDataString($nsisZipName)
+          $releaseUrl = "https://github.com/${{ github.repository }}/releases/download/$tag"
+
+          $json = @{
+            version = $version
+            notes = "FotoPacients Agent $tag"
+            pub_date = $pubDate
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $sig
+                url = "$releaseUrl/$nsisZipUrlName"
+              }
+            }
+          } | ConvertTo-Json -Depth 4
+
+          $json | Out-File -FilePath latest.json -Encoding utf8NoBOM
+          gh release upload $tag $nsisZipPath latest.json --clobber
