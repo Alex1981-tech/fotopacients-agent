@@ -21,42 +21,50 @@ export function Settings({ mode, user, currentNode, onModeChange, onNodesRefresh
   const [version, setVersion] = useState('');
   const [checkingUpdate, setCheckingUpdate] = useState(false);
 
+  const [err, setErr] = useState('');
+
   useEffect(() => {
-    isEnabled().then(setAutostart).catch(() => setAutostart(false));
-    pingAll().then(setNodes).catch(() => setNodes([]));
+    isEnabled().then(setAutostart).catch((e) => { console.error('[autostart isEnabled]', e); setAutostart(false); });
+    pingAll().then(setNodes).catch((e) => { console.error('[pingAll]', e); setNodes([]); });
     getVersion().then(setVersion).catch(() => setVersion(''));
   }, []);
 
   const checkUpdates = async () => {
-    setCheckingUpdate(true);
+    setErr(''); setCheckingUpdate(true);
     try { await checkForUpdates(false); }
+    catch (e: any) { setErr(`Updater: ${e?.message || e}`); }
     finally { setCheckingUpdate(false); }
   };
 
   const toggleAutostart = async () => {
-    if (autostart) await disable();
-    else await enable();
-    setAutostart(!autostart);
+    setErr('');
+    try {
+      if (autostart) await disable(); else await enable();
+      setAutostart(!autostart);
+    } catch (e: any) { setErr(`Autostart: ${e?.message || e}`); }
   };
 
   const changeMode = async (m: Mode) => {
-    await setMode(m);
-    onModeChange(m);
+    setErr('');
+    try { await setMode(m); onModeChange(m); }
+    catch (e: any) { setErr(`Mode: ${e?.message || e}`); }
   };
 
   const refreshNodes = async () => {
-    const n = await pingAll();
-    setNodes(n);
-    onNodesRefresh();
+    setErr('');
+    try { const n = await pingAll(); setNodes(n); onNodesRefresh(); }
+    catch (e: any) { setErr(`Nodes: ${e?.message || e}`); }
   };
 
   const logout = async () => {
-    await clearAuth();
-    onLogout();
+    setErr('');
+    try { await clearAuth(); onLogout(); }
+    catch (e: any) { setErr(`Logout: ${e?.message || e}`); }
   };
 
   return (
     <div className="settings">
+      {err && <div className="settings-err">⚠ {err}</div>}
       <section>
         <h3>Користувач</h3>
         {user ? (

@@ -1,7 +1,10 @@
 import { readFile, stat } from '@tauri-apps/plugin-fs';
-import { fetch } from '@tauri-apps/plugin-http';
 import type { Mode, TaskStatus, UploadTask } from './types';
 import { getApi } from './api';
+
+// Використовуємо НАТИВНИЙ window.fetch — tauri-plugin-http fetch не вміє
+// FormData з великими файлами (multipart body не стрімиться). CSP у нашій
+// конфігурації дозволяє http(s) connect-src для всіх адрес.
 
 const MAX_PARALLEL = 3;
 const MAX_RETRIES = 3;
