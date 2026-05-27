@@ -86,6 +86,11 @@ export function UploadQueue() {
                   </div>
                   <div className="qcard-meta">
                     {fmtSize(totalSize)} · {t.mode === 'ct' ? 'КТ' : 'Аналізи'} · {t.node_id}
+                    {t.status === 'uploading' && (
+                      <> · <strong>{t.progress}%</strong>
+                      {t.speed_mbps != null && t.speed_mbps > 0 && ` · ${t.speed_mbps.toFixed(1)} МБ/с`}
+                      </>
+                    )}
                     {t.finished_at && ` · ${fmtAgo(t.finished_at)}`}
                   </div>
                 </div>

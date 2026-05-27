@@ -97,13 +97,10 @@ class UploadQueue {
     try {
       const api = getApi();
       if (!api.baseUrl || !api.token) throw new Error('Не авторизовано');
-      // CT endpoint очікує одне поле `file` з ZIP/RAR;
-      // analysis endpoint — масив `photos[]`.
       const fieldName = task.mode === 'ct' ? 'file' : 'photos';
       const form = new FormData();
       for (const f of task.files) {
         const bytes = await readFile(f.path);
-        // Гарантуємо ArrayBuffer (Blob не приймає Uint8Array на ArrayBufferLike напряму)
         const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
         form.append(fieldName, new Blob([buf]), f.name);
       }
@@ -111,19 +108,43 @@ class UploadQueue {
         ? `/api/appointments/${task.appointment_id}/ct-upload/`
         : `/api/agent/patients/${task.patient_id}/upload-analysis/`;
 
-      task.progress = 10;
+      task.progress = 0;
       this.notify();
 
-      const resp = await fetch(`${api.baseUrl}${path}`, {
-        method: 'POST',
-        headers: { 'Authorization': `Token ${api.token}` },
-        body: form,
-      });
+      // XMLHttpRequest замість fetch — щоб отримувати real upload progress
+      // (window.fetch не дає upload progress events).
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${api.baseUrl}${path}`);
+        xhr.setRequestHeader('Authorization', `Token ${api.token}`);
+        xhr.responseType = 'text';
 
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(`HTTP ${resp.status}: ${txt.slice(0, 200)}`);
-      }
+        const start = performance.now();
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            const elapsedS = (performance.now() - start) / 1000;
+            const mbps = elapsedS > 0 ? (e.loaded / 1024 / 1024) / elapsedS : 0;
+            task.progress = pct;
+            task.speed_mbps = mbps;
+            this.notify();
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            task.progress = 100;
+            this.notify();
+            resolve();
+          } else {
+            reject(new Error(`HTTP ${xhr.status}: ${String(xhr.responseText).slice(0, 200)}`));
+          }
+        };
+        xhr.onerror = () => reject(new Error('Network error'));
+        xhr.ontimeout = () => reject(new Error('Timeout'));
+        // Timeout 30 хв для великих КТ через VPN
+        xhr.timeout = 30 * 60 * 1000;
+        xhr.send(form);
+      });
 
       task.status = 'done';
       task.progress = 100;
