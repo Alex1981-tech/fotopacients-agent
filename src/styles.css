@@ -237,24 +237,55 @@ input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-
 
 .patient-search { display: flex; flex-direction: column; gap: 10px; }
 .patient-search label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* Tabs картка/ПІБ/телефон */
+.search-tabs {
+  display: inline-flex;
+  background: var(--hover);
+  border-radius: var(--r);
+  padding: 3px;
+  gap: 2px;
+  align-self: flex-start;
+}
+.search-tabs button {
+  padding: 6px 14px;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-muted);
+  border-radius: var(--r-sm);
+}
+.search-tabs button.active {
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 2px 6px rgba(124, 144, 222, 0.30);
+}
+
 .ps-loading, .ps-err { font-size: 13px; padding: 6px 0; }
 .ps-err { color: var(--err); }
+
+.ps-results { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-height: 320px; overflow-y: auto; }
+.ps-results-head { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 0; }
+
 .ps-card {
-  margin-top: 8px;
-  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
   background: var(--primary-soft);
   border: 1px solid var(--primary-ring);
   border-radius: var(--r);
 }
-.ps-fio { font-weight: 600; font-size: 16px; }
-.ps-meta { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
+.ps-fio { font-weight: 600; font-size: 14px; }
+.ps-meta { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
 .ps-confirm {
-  margin-top: 12px;
   background: var(--primary);
   color: white;
   font-weight: 600;
-  padding: 10px 16px;
-  box-shadow: 0 2px 8px rgba(124, 144, 222, 0.30);
+  padding: 8px 14px;
+  font-size: 13px;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(124, 144, 222, 0.30);
 }
 .ps-confirm:hover { background: var(--primary-strong); }
 

@@ -72,6 +72,11 @@ export const patients = {
       `/api/patients/?card_number=${encodeURIComponent(card_number)}`,
     );
   },
+  search(query: string) {
+    return call<PatientSearchResp>(
+      `/api/patients/?q=${encodeURIComponent(query)}`,
+    );
+  },
   recentAppointments(patient_id: string) {
     return call<{ patient: Patient; appointments: Appointment[] }>(
       `/api/agent/patients/${patient_id}/recent-appointments/`,
