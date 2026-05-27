@@ -27,3 +27,4 @@ src-tauri/gen
 
 # OS
 Thumbs.db
+tsconfig.tsbuildinfo
