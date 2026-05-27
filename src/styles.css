@@ -559,10 +559,34 @@ input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-
   display: flex;
   flex-direction: column;
   gap: 6px;
-  overflow-y: auto;
-  padding-right: 2px;
+  overflow-y: overlay;       /* WebKit: scrollbar floats over content, не з'їдає ширину */
+  overflow-y: auto;          /* fallback */
+  padding-right: 4px;
   min-height: 0;
+  scrollbar-width: thin;      /* Firefox */
+  scrollbar-color: rgba(148, 163, 184, 0.28) transparent;
 }
+/* WebKit / Chromium — тонка непомітна шкала, показуємо тільки на hover */
+.queue::-webkit-scrollbar {
+  width: 6px;
+}
+.queue::-webkit-scrollbar-track {
+  background: transparent;
+}
+.queue::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 999px;
+  transition: background-color 160ms ease;
+}
+.queue:hover::-webkit-scrollbar-thumb,
+.queue:focus-within::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.35);
+}
+.queue::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(148, 163, 184, 0.55);
+}
+.queue::-webkit-scrollbar-button { display: none; }
+.queue::-webkit-scrollbar-corner { background: transparent; }
 
 .qcard {
   padding: 10px 12px;
