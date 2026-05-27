@@ -9,7 +9,11 @@ import { setApi } from './lib/api';
 import { pickFastest, type NodeProbe } from './lib/node-picker';
 import { getSettings, setSetting } from './lib/store';
 import { startAutoUpdate } from './lib/updater';
+import { queue } from './lib/upload';
 import type { AuthUser, Mode } from './lib/types';
+import pkg from '../package.json';
+
+const APP_VERSION = (pkg as { version?: string }).version || '0.0.0';
 
 export function App() {
   const [ready, setReady] = useState(false);
@@ -25,6 +29,9 @@ export function App() {
       setMode(s.mode);
       setUser(s.user);
       setToken(s.token);
+      // Hydrate історії завантажень з диску — щоб після перезапуску
+      // користувач бачив, що було відправлено / провалилось.
+      await queue.hydrate();
       const fastest = await pickFastest();
       if (fastest) {
         setNode(fastest);
@@ -96,6 +103,7 @@ export function App() {
         </div>
 
         <div className="topbar-right">
+          <span className="version-pill" title="Версія додатку">v{APP_VERSION}</span>
           <span className="mode-pill">{mode === 'ct' ? 'КТ' : 'Аналізи'}</span>
           <button
             className="icon-btn"

@@ -48,6 +48,26 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
+
+/* Глобальна тонка scrollbar — WebView2/Edge на Windows за дефолтом
+   рендерить широку системну (16px). Перекриваємо нашою тонкою скрізь,
+   а не лише на .queue — бо скролитись може й body, і modal, і будь-що. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.32) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.32);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 160ms ease;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: rgba(148, 163, 184, 0.5); }
+*::-webkit-scrollbar-button { display: none; }
+*::-webkit-scrollbar-corner { background: transparent; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
   background: var(--bg);
@@ -194,6 +214,17 @@ input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-weight: 700;
+}
+.version-pill {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+  border: 1px solid var(--divider);
 }
 .icon-btn {
   width: 32px;

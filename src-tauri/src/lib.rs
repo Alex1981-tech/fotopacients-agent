@@ -34,6 +34,28 @@ fn get_local_ip() -> Option<String> {
     local_ip().ok().map(|ip| ip.to_string())
 }
 
+/// Повертає список файлів у Windows clipboard (HDROP формат). Виникає
+/// коли користувач "копіює файл" у Провіднику (Ctrl+C на файлі).
+/// tauri-plugin-clipboard дає тільки text/image; HDROP — спеціальний
+/// формат який треба читати окремо через WinAPI.
+///
+/// Non-Windows: завжди порожній.
+#[tauri::command]
+fn get_clipboard_files() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        use clipboard_win::{formats, get_clipboard};
+        match get_clipboard(formats::FileList) {
+            Ok(list) => list,
+            Err(_) => Vec::new(),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -97,7 +119,7 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .invoke_handler(tauri::generate_handler![show_window, hide_window, get_local_ip])
+        .invoke_handler(tauri::generate_handler![show_window, hide_window, get_local_ip, get_clipboard_files])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

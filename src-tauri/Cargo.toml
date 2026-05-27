@@ -35,6 +35,11 @@ tauri-plugin-autostart = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-single-instance = "2"
 
+# Windows-only: читання HDROP (списку файлів) з clipboard. Tauri-plugin
+# дає тільки text/image, тому копіювання файлів у Провіднику не виявлялось.
+[target.'cfg(windows)'.dependencies]
+clipboard-win = "5"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

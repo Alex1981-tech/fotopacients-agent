@@ -1,4 +1,5 @@
 import { readFile, stat } from '@tauri-apps/plugin-fs';
+import { load, Store } from '@tauri-apps/plugin-store';
 import type { Mode, TaskStatus, UploadTask } from './types';
 import { getApi } from './api';
 
@@ -10,12 +11,77 @@ const MAX_PARALLEL = 3;
 const MAX_RETRIES = 3;
 const RETRY_BACKOFF_MS = 30_000;
 
+const HISTORY_FILE = 'upload-history.json';
+const HISTORY_KEY = 'tasks';
+const HISTORY_LIMIT = 500;
+
 type Listener = (tasks: UploadTask[]) => void;
 
 class UploadQueue {
   private tasks = new Map<string, UploadTask>();
   private running = new Set<string>();
   private listeners = new Set<Listener>();
+  private store: Store | null = null;
+  private hydrating = false;
+
+  /** Завантаження історії з диску при старті — викликається з App.tsx
+      одразу після того як user залогінився. Безпечно викликати кілька разів. */
+  async hydrate(): Promise<void> {
+    if (this.hydrating || this.store) return;
+    this.hydrating = true;
+    try {
+      this.store = await load(HISTORY_FILE, { autoSave: false, defaults: {} });
+      const saved = await this.store.get<UploadTask[]>(HISTORY_KEY);
+      if (Array.isArray(saved)) {
+        for (const t of saved) {
+          // 'queued' / 'uploading' під час старту — недосяжні файли (path
+          // міг бути видалений / агент закрився посередині). Позначаємо як
+          // failed, користувач сам вирішить retry / прибрати.
+          if (t.status === 'queued' || t.status === 'uploading') {
+            t.status = 'failed';
+            t.error = 'Перерване попереднім запуском — перетягніть файл знову, якщо потрібно';
+            t.progress = 0;
+          }
+          this.tasks.set(t.id, t);
+        }
+        this.notify();
+      }
+    } catch (e) {
+      console.warn('upload history hydrate failed', e);
+    } finally {
+      this.hydrating = false;
+    }
+  }
+
+  private async persist(): Promise<void> {
+    if (!this.store) return;
+    try {
+      // Зберігаємо до HISTORY_LIMIT найновіших — щоб файл не ріс безмежно.
+      const sorted = this.list().slice(0, HISTORY_LIMIT);
+      await this.store.set(HISTORY_KEY, sorted);
+      await this.store.save();
+    } catch (e) {
+      console.warn('upload history persist failed', e);
+    }
+  }
+
+  async clearHistory(filter?: (t: UploadTask) => boolean): Promise<void> {
+    if (filter) {
+      for (const t of [...this.tasks.values()]) {
+        if (this.running.has(t.id)) continue;
+        if (filter(t)) this.tasks.delete(t.id);
+      }
+    } else {
+      // Прибираємо лише завершені (done/failed) — активні не чіпаємо.
+      for (const t of [...this.tasks.values()]) {
+        if (t.status === 'done' || t.status === 'failed') {
+          this.tasks.delete(t.id);
+        }
+      }
+    }
+    this.notify();
+    void this.persist();
+  }
 
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
@@ -30,6 +96,8 @@ class UploadQueue {
   private notify() {
     const snap = this.list();
     for (const l of this.listeners) l(snap);
+    // Зберігаємо у persistent store. void щоб не блокувати notify.
+    void this.persist();
   }
 
   enqueue(opts: {
