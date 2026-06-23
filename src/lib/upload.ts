@@ -173,7 +173,7 @@ class UploadQueue {
         form.append(fieldName, new Blob([buf]), f.name);
       }
       const path = task.mode === 'ct'
-        ? `/api/appointments/${task.appointment_id}/ct-upload/`
+        ? `/api/agent/appointments/${task.appointment_id}/ct-upload/`
         : `/api/agent/patients/${task.patient_id}/upload-analysis/`;
 
       task.progress = 0;

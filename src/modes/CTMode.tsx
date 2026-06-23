@@ -3,6 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { PatientSearch } from '../components/PatientSearch';
 import { patients } from '../lib/api';
 import { onTauriDrop } from '../lib/drop';
+import { prepareCtPaths } from '../lib/archive';
 import { queue } from '../lib/upload';
 import type { Appointment, Patient } from '../lib/types';
 
@@ -49,7 +50,18 @@ export function CTMode({ nodeId }: { nodeId: string }) {
         return;
       }
     }
-    for (const path of paths) {
+    // Папки запаковуємо у .zip автоматично; готові архіви/файли — як є.
+    let uploadPaths: string[];
+    try {
+      uploadPaths = await prepareCtPaths(paths, (name) => {
+        setFlash(`Архівуємо папку «${name}»…`);
+      });
+    } catch (e: any) {
+      setFlash(`Помилка архівації: ${e?.message || e}`);
+      setTimeout(() => setFlash(''), 4000);
+      return;
+    }
+    for (const path of uploadPaths) {
       await queue.addFile(path, {
         mode: 'ct',
         patient_id: patient.id,
@@ -58,7 +70,7 @@ export function CTMode({ nodeId }: { nodeId: string }) {
         node_id: nodeId,
       });
     }
-    setFlash(`Додано в чергу: ${paths.length}`);
+    setFlash(`Додано в чергу: ${uploadPaths.length}`);
     setTimeout(() => setFlash(''), 2500);
   };
 
@@ -70,6 +82,13 @@ export function CTMode({ nodeId }: { nodeId: string }) {
       multiple: true,
       filters: [{ name: 'CT archives', extensions: ['zip', 'rar', '7z', 'isz'] }],
     });
+    if (!selected) return;
+    const paths = Array.isArray(selected) ? selected : [selected];
+    await handleFiles(paths);
+  };
+
+  const onPickFolder = async () => {
+    const selected = await open({ directory: true, multiple: true });
     if (!selected) return;
     const paths = Array.isArray(selected) ? selected : [selected];
     await handleFiles(paths);
@@ -118,8 +137,14 @@ export function CTMode({ nodeId }: { nodeId: string }) {
         {flash && <div className="dock-flash">{flash}</div>}
         <div className="dropzone" onClick={onClickPick}>
           <div className="dz-icon">📦</div>
-          <div>Перетягніть архів КТ сюди або клікніть</div>
-          <div className="dz-hint">.zip · .rar · .7z · .isz · до 3 ГБ</div>
+          <div>Перетягніть архів або папку КТ сюди чи клікніть</div>
+          <div className="dz-hint">.zip · .rar · .7z · .isz або папку (запакуємо самі) · до 3 ГБ</div>
+          <button
+            className="link"
+            onClick={(e) => { e.stopPropagation(); onPickFolder(); }}
+          >
+            Обрати папку…
+          </button>
         </div>
       </div>
     </div>

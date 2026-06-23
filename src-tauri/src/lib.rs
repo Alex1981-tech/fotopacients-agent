@@ -56,6 +56,69 @@ fn get_clipboard_files() -> Vec<String> {
     }
 }
 
+/// Архівує папку `src` у .zip і повертає шлях до створеного архіву (у
+/// системному temp). Використовується КТ-режимом: коли користувач кидає
+/// папку зі знімками замість готового архіву — пакуємо її автоматично
+/// перед завантаженням. Імена всередині архіву — відносно кореня папки.
+#[tauri::command]
+fn zip_folder(src: String) -> Result<String, String> {
+    use std::fs::File;
+    use std::path::Path;
+    use zip::write::SimpleFileOptions;
+
+    let base = Path::new(&src);
+    if !base.is_dir() {
+        return Err(format!("не папка: {src}"));
+    }
+    let folder_name = base
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("ct");
+
+    // Унікальний суфікс щоб повторні/паралельні запаковки не перезаписали одна одну.
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let mut out = std::env::temp_dir();
+    out.push(format!("{folder_name}-{stamp}.zip"));
+
+    let file = File::create(&out).map_err(|e| format!("create zip: {e}"))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .large_file(true);
+
+    let mut stack = vec![base.to_path_buf()];
+    let mut entries = 0u64;
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).map_err(|e| format!("read_dir: {e}"))? {
+            let entry = entry.map_err(|e| format!("entry: {e}"))?;
+            let path = entry.path();
+            let rel = path
+                .strip_prefix(base)
+                .map_err(|e| format!("strip_prefix: {e}"))?;
+            let name = rel.to_string_lossy().replace('\\', "/");
+            if path.is_dir() {
+                zip.add_directory(format!("{name}/"), options)
+                    .map_err(|e| format!("add_directory: {e}"))?;
+                stack.push(path);
+            } else {
+                zip.start_file(&name, options)
+                    .map_err(|e| format!("start_file: {e}"))?;
+                let mut f = File::open(&path).map_err(|e| format!("open {name}: {e}"))?;
+                std::io::copy(&mut f, &mut zip).map_err(|e| format!("copy {name}: {e}"))?;
+                entries += 1;
+            }
+        }
+    }
+    if entries == 0 {
+        return Err("папка порожня — нічого архівувати".into());
+    }
+    zip.finish().map_err(|e| format!("finish zip: {e}"))?;
+    Ok(out.to_string_lossy().to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -119,7 +182,7 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .invoke_handler(tauri::generate_handler![show_window, hide_window, get_local_ip, get_clipboard_files])
+        .invoke_handler(tauri::generate_handler![show_window, hide_window, get_local_ip, get_clipboard_files, zip_folder])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
