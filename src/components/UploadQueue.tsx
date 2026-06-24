@@ -75,6 +75,7 @@ export function UploadQueue() {
                   {t.status === 'uploading' && <span className="spinner spin" />}
                   {t.status === 'done' && <CheckIcon />}
                   {t.status === 'failed' && <XIcon />}
+                  {t.status === 'duplicate' && <span className="dup-mark">⧉</span>}
                 </span>
                 <div className="qcard-body">
                   <div className="qcard-title">
@@ -115,6 +116,24 @@ export function UploadQueue() {
               )}
               {t.status === 'failed' && t.error && (
                 <div className="qcard-err">⚠ {t.error}</div>
+              )}
+              {t.status === 'duplicate' && (
+                <div className="qcard-dup">
+                  <div className="qcard-dup-msg">
+                    ⧉ Такий файл уже завантажений для пацієнта:
+                    <ul>
+                      {(t.duplicates || []).map((d, i) => (
+                        <li key={i}>
+                          {d.existing_name}
+                          <span className="muted"> · {d.match === 'content' ? 'ідентичний вміст' : 'та сама назва'}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <button className="qcard-dup-btn" onClick={() => queue.forceUpload(t.id)}>
+                    Все одно завантажити
+                  </button>
+                </div>
               )}
               {t.status === 'failed' && t.retry_count > 0 && (
                 <div className="qcard-meta">Спроб: {t.retry_count}</div>

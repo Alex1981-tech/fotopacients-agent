@@ -691,6 +691,30 @@ input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-
   background: rgba(255, 69, 58, 0.10);
   border-radius: 6px;
 }
+.dup-mark { color: var(--warn); font-size: 14px; line-height: 1; }
+.qcard-dup {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: rgba(255, 159, 10, 0.10);
+  border: 1px solid rgba(255, 159, 10, 0.30);
+  border-radius: 8px;
+}
+.qcard-dup-msg { font-size: 11px; color: var(--text-muted); }
+.qcard-dup-msg ul { margin: 4px 0 0; padding-left: 16px; }
+.qcard-dup-msg li { margin: 2px 0; color: var(--text); }
+.qcard-dup-btn {
+  margin-top: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warn);
+  background: rgba(255, 159, 10, 0.14);
+  border: 1px solid rgba(255, 159, 10, 0.40);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.qcard-dup-btn:hover { background: rgba(255, 159, 10, 0.24); }
 .qcard-actions { display: flex; gap: 2px; flex-shrink: 0; }
 .iconbtn {
   width: 26px;

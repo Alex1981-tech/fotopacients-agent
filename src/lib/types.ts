@@ -25,7 +25,14 @@ export interface Appointment {
   doc_number: string;
 }
 
-export type TaskStatus = 'queued' | 'uploading' | 'done' | 'failed';
+export type TaskStatus = 'queued' | 'uploading' | 'done' | 'failed' | 'duplicate';
+
+export interface DuplicateInfo {
+  name: string;
+  match: 'content' | 'name';   // той самий файл vs та сама назва
+  existing_name: string;
+  existing_uploaded_at: string;
+}
 
 export interface UploadTask {
   id: string;
@@ -42,6 +49,8 @@ export interface UploadTask {
   retry_count: number;
   created_at: number;
   finished_at?: number;
+  force?: boolean;              // користувач підтвердив повторне завантаження
+  duplicates?: DuplicateInfo[]; // знайдені дублі (status='duplicate')
 }
 
 export interface AuthUser {

@@ -138,6 +138,20 @@ class UploadQueue {
     this.tick();
   }
 
+  /** «Все одно завантажити» — повторити з force=true попри дубль. */
+  forceUpload(taskId: string) {
+    const t = this.tasks.get(taskId);
+    if (!t) return;
+    t.force = true;
+    t.status = 'queued';
+    t.duplicates = undefined;
+    t.error = undefined;
+    t.progress = 0;
+    t.finished_at = undefined;
+    this.notify();
+    this.tick();
+  }
+
   remove(taskId: string) {
     if (this.running.has(taskId)) return;
     this.tasks.delete(taskId);
@@ -172,6 +186,8 @@ class UploadQueue {
         const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
         form.append(fieldName, new Blob([buf]), f.name);
       }
+      // force=true → backend збереже навіть якщо це дубль (user підтвердив).
+      if (task.force) form.append('force', 'true');
       const path = task.mode === 'ct'
         ? `/api/agent/appointments/${task.appointment_id}/ct-upload/`
         : `/api/agent/patients/${task.patient_id}/upload-analysis/`;
@@ -203,6 +219,16 @@ class UploadQueue {
             task.progress = 100;
             this.notify();
             resolve();
+          } else if (xhr.status === 409) {
+            // Backend знайшов дубль(і) — не помилка, чекаємо рішення user'а.
+            try {
+              const data = JSON.parse(xhr.responseText);
+              task.duplicates = Array.isArray(data.duplicates) ? data.duplicates : [];
+            } catch { task.duplicates = []; }
+            task.status = 'duplicate';
+            task.finished_at = Date.now();
+            this.notify();
+            resolve();
           } else {
             reject(new Error(`HTTP ${xhr.status}: ${String(xhr.responseText).slice(0, 200)}`));
           }
@@ -213,6 +239,9 @@ class UploadQueue {
         xhr.timeout = 30 * 60 * 1000;
         xhr.send(form);
       });
+
+      // Дубль — лишаємо статус 'duplicate', не позначаємо done (чекаємо forceUpload).
+      if (task.status === 'duplicate') return;
 
       task.status = 'done';
       task.progress = 100;
