@@ -1,20 +1,18 @@
 import { useEffect, useState } from 'react';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { pingAll, type NodeProbe } from '../lib/node-picker';
-import { clearAuth, setMode } from '../lib/store';
+import { clearAuth } from '../lib/store';
 import { getVersion } from '@tauri-apps/api/app';
-import type { AuthUser, Mode } from '../lib/types';
+import type { AuthUser } from '../lib/types';
 
 interface Props {
-  mode: Mode;
   user: AuthUser | null;
   currentNode: NodeProbe | null;
-  onModeChange: (m: Mode) => void;
   onNodesRefresh: () => void;
   onLogout: () => void;
 }
 
-export function Settings({ mode, user, currentNode, onModeChange, onNodesRefresh, onLogout }: Props) {
+export function Settings({ user, currentNode, onNodesRefresh, onLogout }: Props) {
   const [autostart, setAutostart] = useState(false);
   const [nodes, setNodes] = useState<NodeProbe[]>([]);
   const [version, setVersion] = useState('');
@@ -33,12 +31,6 @@ export function Settings({ mode, user, currentNode, onModeChange, onNodesRefresh
       if (autostart) await disable(); else await enable();
       setAutostart(!autostart);
     } catch (e: any) { setErr(`Autostart: ${e?.message || e}`); }
-  };
-
-  const changeMode = async (m: Mode) => {
-    setErr('');
-    try { await setMode(m); onModeChange(m); }
-    catch (e: any) { setErr(`Mode: ${e?.message || e}`); }
   };
 
   const refreshNodes = async () => {
@@ -64,14 +56,6 @@ export function Settings({ mode, user, currentNode, onModeChange, onNodesRefresh
             <button className="btn-secondary" onClick={logout}>Вийти</button>
           </div>
         ) : <div className="muted">не авторизовано</div>}
-      </section>
-
-      <section>
-        <h3>Режим</h3>
-        <div className="seg">
-          <button className={mode === 'ct' ? 'active' : ''} onClick={() => changeMode('ct')}>КТ</button>
-          <button className={mode === 'analysis' ? 'active' : ''} onClick={() => changeMode('analysis')}>Аналізи</button>
-        </div>
       </section>
 
       <section>

@@ -3,14 +3,13 @@ import { ClipboardToast } from './components/ClipboardToast';
 import { LoginScreen } from './components/LoginScreen';
 import { Settings } from './components/Settings';
 import { UploadQueue } from './components/UploadQueue';
-import { CTMode } from './modes/CTMode';
-import { AnalysisMode } from './modes/AnalysisMode';
+import { UnifiedMode } from './modes/UnifiedMode';
 import { setApi } from './lib/api';
 import { pickFastest, type NodeProbe } from './lib/node-picker';
 import { getSettings, setSetting } from './lib/store';
-import { startAutoUpdate } from './lib/updater';
+import { startAutoUpdate, type UpdateStatus } from './lib/updater';
 import { queue } from './lib/upload';
-import type { AuthUser, Mode } from './lib/types';
+import type { AuthUser } from './lib/types';
 import pkg from '../package.json';
 
 const APP_VERSION = (pkg as { version?: string }).version || '0.0.0';
@@ -19,14 +18,13 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [mode, setMode] = useState<Mode>('ct');
   const [node, setNode] = useState<NodeProbe | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ kind: 'idle' });
 
   useEffect(() => {
     (async () => {
       const s = await getSettings();
-      setMode(s.mode);
       setUser(s.user);
       setToken(s.token);
       // Hydrate історії завантажень з диску — щоб після перезапуску
@@ -55,7 +53,7 @@ export function App() {
   }, [node, token]);
 
   useEffect(() => {
-    const stop = startAutoUpdate();
+    const stop = startAutoUpdate(setUpdateStatus);
     return stop;
   }, []);
 
@@ -103,8 +101,8 @@ export function App() {
         </div>
 
         <div className="topbar-right">
+          <UpdatePill status={updateStatus} />
           <span className="version-pill" title="Версія додатку">v{APP_VERSION}</span>
-          <span className="mode-pill">{mode === 'ct' ? 'КТ' : 'Аналізи'}</span>
           <button
             className="icon-btn"
             onClick={() => setSettingsOpen(true)}
@@ -118,9 +116,7 @@ export function App() {
 
       <main className="workspace">
         <section className="upload-pane">
-          {mode === 'ct'
-            ? <CTMode nodeId={node?.node.id || 'unknown'} />
-            : <AnalysisMode nodeId={node?.node.id || 'unknown'} />}
+          <UnifiedMode nodeId={node?.node.id || 'unknown'} />
         </section>
         <aside className="queue-pane">
           <h3>Задачі</h3>
@@ -139,10 +135,8 @@ export function App() {
             </div>
             <div className="modal-body">
               <Settings
-                mode={mode}
                 user={user}
                 currentNode={node}
-                onModeChange={setMode}
                 onNodesRefresh={async () => {
                   const f = await pickFastest();
                   if (f) { setNode(f); setApi({ baseUrl: f.url, token }); }
@@ -155,6 +149,29 @@ export function App() {
       )}
     </div>
   );
+}
+
+function UpdatePill({ status }: { status: UpdateStatus }) {
+  // idle / uptodate — нічого не показуємо (без шуму).
+  if (status.kind === 'idle' || status.kind === 'uptodate') return null;
+  let text = '';
+  let cls = 'update-pill';
+  let title = '';
+  switch (status.kind) {
+    case 'checking': text = 'Перевірка оновлень…'; break;
+    case 'available': text = `Оновлення ${status.version}`; break;
+    case 'downloading': text = `Завантаження ${status.version}…`; break;
+    case 'pending-relaunch':
+      text = `Оновлення ${status.version} — перезапуск після черги`;
+      cls += ' ready';
+      break;
+    case 'error':
+      text = 'Помилка оновлення';
+      cls += ' error';
+      title = status.error;  // повний текст у tooltip — для діагностики
+      break;
+  }
+  return <span className={cls} title={title || text}>{text}</span>;
 }
 
 function SettingsIcon() {
