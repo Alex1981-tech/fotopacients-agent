@@ -59,10 +59,14 @@ jobs:
           $nsisExe = Get-ChildItem -Path $bundleDir -Filter "*_x64-setup.exe" | Select-Object -First 1
           if (-not $nsisExe) {
             Write-Host "NSIS exe not found in $bundleDir"
-            exit 0
+            exit 1
           }
 
-          $nsisZipName = $nsisExe.BaseName + ".nsis.zip"
+          # GitHub замінює пробіли/спецсимволи в імені asset на крапки при
+          # upload. productName "FotoPacients Agent" має пробіл → asset стає
+          # "FotoPacients.Agent_..." а URL з %20 → 404 при auto-update.
+          # Нормалізуємо ім'я ДО створення zip, щоб asset і URL збігались.
+          $nsisZipName = ($nsisExe.BaseName + ".nsis.zip") -replace '[^A-Za-z0-9._-]', '.'
           $nsisZipPath = Join-Path $nsisExe.DirectoryName $nsisZipName
           Add-Type -Assembly System.IO.Compression
           Add-Type -Assembly System.IO.Compression.FileSystem
@@ -74,7 +78,7 @@ jobs:
           $sigPath = "${nsisZipPath}.sig"
           if (-not (Test-Path $sigPath)) {
             Write-Host "Signing failed"
-            exit 0
+            exit 1
           }
           $sig = (Get-Content $sigPath -Raw).Trim()
 
