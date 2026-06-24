@@ -1,5 +1,10 @@
 import { useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { auth } from '../lib/api';
+
+// Той самий бот, що й у web-фотопацієнті. Код для входу приходить у цей
+// Telegram-бот — співробітник має спершу його запустити й прив'язати номер.
+const BOT_LINK = 'https://t.me/Clinical_Photo_bot?start=link';
 
 export function LoginScreen({ onLogin }: { onLogin: (token: string, user: any) => void }) {
   const [phone, setPhone] = useState('+380');
@@ -58,6 +63,17 @@ export function LoginScreen({ onLogin }: { onLogin: (token: string, user: any) =
               {loading ? 'Надсилаємо…' : 'Отримати код у Telegram'}
             </button>
             {error && <div className="login-err">{error}</div>}
+
+            <div className="login-bot">
+              <div className="login-bot-qr">
+                <QRCodeSVG value={BOT_LINK} size={116} level="M" />
+              </div>
+              <div className="login-bot-text">
+                <strong>Немає бота?</strong>
+                <span>Скануйте QR телефоном або відкрийте бота, натисніть «Старт» і поділіться номером — туди прийде код для входу.</span>
+                <a href={BOT_LINK} target="_blank" rel="noreferrer" className="link">Відкрити бота</a>
+              </div>
+            </div>
           </form>
         )}
 
