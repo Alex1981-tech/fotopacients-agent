@@ -55,6 +55,17 @@ export interface NodeProbe {
   ms: number;
 }
 
+// Повний статус ноди для UI — включно з недоступними (ms=null) і позначкою
+// «домашня» (та сама /24 підмережа що й клієнтський ПК → пріоритет за швидкістю).
+export interface NodeStatus {
+  id: string;
+  label: string;
+  url: string;          // найкращий (lan у пріоритеті) URL для показу
+  ms: number | null;    // null = недоступна
+  reachable: boolean;
+  isHome: boolean;      // у тій самій LAN-підмережі, що й цей ПК
+}
+
 async function loadNodes(): Promise<RawNode[]> {
   const settings = await getSettings();
   const discoveryUrl = (settings as any).discovery_url || DEFAULT_DISCOVERY_URL;
@@ -141,4 +152,40 @@ export async function pickFastest(): Promise<NodeProbe | null> {
   // Fallback — ping всіх, повертаємо найшвидшу
   const all = await pingAll();
   return all[0] ?? null;
+}
+
+/**
+ * Повний статус УСІХ нод для UI (на відміну від pingAll, недоступні НЕ
+ * відкидаються — показуємо їх як reachable=false). Позначає «домашню» ноду
+ * (та сама /24 що й цей ПК), щоб користувач бачив до чого агент чіпляється
+ * за швидкістю і які запасні живі.
+ */
+export async function probeAllStatus(): Promise<NodeStatus[]> {
+  const [nodes, localIp] = await Promise.all([loadNodes(), getLocalIp()]);
+  const myNet = localIp ? subnet24(localIp) : '';
+
+  const out = await Promise.all(nodes.map(async (raw): Promise<NodeStatus> => {
+    const urls = [raw.lan_url, raw.ts_url].filter(Boolean) as string[];
+    let best: { url: string; ms: number } | null = null;
+    for (const url of urls) {
+      const ms = await probe(url);
+      if (ms !== null && (best === null || ms < best.ms)) best = { url, ms };
+    }
+    const isHome = !!myNet && subnet24(urlHost(raw.lan_url || '')) === myNet;
+    return {
+      id: raw.id,
+      label: raw.label,
+      url: best?.url || raw.lan_url || raw.ts_url || '',
+      ms: best?.ms ?? null,
+      reachable: best !== null,
+      isHome,
+    };
+  }));
+
+  // Сортування: домашня → доступні за ping → недоступні в кінці.
+  return out.sort((a, b) => {
+    if (a.isHome !== b.isHome) return a.isHome ? -1 : 1;
+    if (a.reachable !== b.reachable) return a.reachable ? -1 : 1;
+    return (a.ms ?? Infinity) - (b.ms ?? Infinity);
+  });
 }
