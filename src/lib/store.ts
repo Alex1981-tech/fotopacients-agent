@@ -7,6 +7,8 @@ const DEFAULT_SETTINGS: AgentSettings = {
   user: null,
   preferred_node_id: null,
   autostart: false,
+  pinned_node: null,
+  session_expires_at: null,
 };
 
 let storeInstance: Store | null = null;
@@ -42,4 +44,6 @@ export async function setMode(mode: Mode) { await setSetting('mode', mode); }
 export async function clearAuth() {
   await setSetting('token', null);
   await setSetting('user', null);
+  await setSetting('pinned_node', null);
+  await setSetting('session_expires_at', null);
 }

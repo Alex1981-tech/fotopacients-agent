@@ -61,10 +61,32 @@ export interface AuthUser {
   role: string;
 }
 
+// Нода, до якої агент «прибитий» на час сесії. Вибирається ОДИН раз при
+// логіні (домашня /24 → інакше найшвидша) і далі не міняється — агент не
+// скаче між нодами, бо токен існує лише на тій ноді, де відбувся логін.
+export interface PinnedNode {
+  id: string;
+  label: string;
+  url: string;
+}
+
+// Світлий опис ноди для екрану входу (до того як обрано прибиту ноду).
+export interface LoginNode {
+  id: string;
+  label: string;
+  url: string;
+  ms: number | null;
+}
+
 export interface AgentSettings {
   mode: Mode;
   token: string | null;
   user: AuthUser | null;
   preferred_node_id: string | null;
   autostart: boolean;
+  // Прибита нода поточної сесії (null до першого логіну).
+  pinned_node: PinnedNode | null;
+  // Коли локально скинути токен (epoch ms = сьогодні 20:00 з бекенду).
+  // Сервер однаково відхилить токен після вікна, це — клієнтський дубль.
+  session_expires_at: number | null;
 }

@@ -36,6 +36,13 @@ async function probe(url: string): Promise<number | null> {
   }
 }
 
+// Health-check однієї (прибитої) ноди. Повертає ping у мс або null, якщо
+// нода недоступна. Використовується щоб НЕ перемикати ноду, а лише знати,
+// чи жива та, до якої агент залогінений.
+export async function probePinned(url: string): Promise<number | null> {
+  return probe(url);
+}
+
 async function fetchDiscovery(discoveryUrl: string): Promise<DiscoveryResp | null> {
   try {
     const ctrl = new AbortController();

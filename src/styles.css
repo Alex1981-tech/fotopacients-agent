@@ -834,3 +834,39 @@ input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-
 .node-row .badge.conn { background: rgba(52, 199, 89, 0.16); color: var(--ok); font-weight: 600; }
 .toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .toggle input { accent-color: var(--primary); width: 18px; height: 18px; }
+
+/* ── Банер вибору ноди на екрані входу ── */
+.login-node { margin: 4px 0 14px; text-align: left; }
+.login-node-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.login-node-label { flex: 1; color: var(--text); }
+.login-node-list {
+  margin-top: 8px; display: flex; flex-direction: column; gap: 4px;
+  border: 1px solid var(--divider); border-radius: var(--r-md); padding: 6px;
+}
+.login-node-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: transparent; border: 0; padding: 7px 8px; border-radius: var(--r-sm);
+  cursor: pointer; color: var(--text); text-align: left; font-size: 13px;
+}
+.login-node-item:hover:not(:disabled) { background: var(--hover, rgba(127,127,127,0.10)); }
+.login-node-item.active { background: rgba(52, 199, 89, 0.12); }
+.login-node-item:disabled { opacity: 0.5; cursor: not-allowed; }
+.login-node-item .node-url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.login-node-item .ms { flex-shrink: 0; }
+.dot.up { background: var(--ok); }
+.dot.active { background: var(--ok); box-shadow: 0 0 0 3px rgba(52, 199, 89, 0.20); }
+.dot.down { background: var(--err); }
+
+/* ── Блокувальна модалка перелогіну (нода зникла / сесія завершилась) ── */
+.relogin-overlay { z-index: 200; }
+.relogin-modal {
+  width: min(420px, 90vw); padding: 28px 26px; text-align: center;
+  align-items: center; gap: 6px;
+}
+.relogin-icon { font-size: 40px; line-height: 1; margin-bottom: 6px; }
+.relogin-modal h2 { margin: 0 0 4px; }
+.relogin-text { color: var(--text-muted, var(--text-faint)); font-size: 14px; margin: 0 0 18px; }
+.relogin-modal button {
+  background: var(--primary); color: #fff; border: 0; border-radius: var(--r-md);
+  padding: 10px 22px; font-size: 14px; font-weight: 600; cursor: pointer;
+}

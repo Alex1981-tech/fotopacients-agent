@@ -1,21 +1,51 @@
 import { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { auth } from '../lib/api';
+import { probeAllStatus } from '../lib/node-picker';
+import type { AuthUser, LoginNode } from '../lib/types';
 
 // Той самий бот, що й у web-фотопацієнті. Код для входу приходить у цей
 // Telegram-бот — співробітник має спершу його запустити й прив'язати номер.
 const BOT_LINK = 'https://t.me/Clinical_Photo_bot?start=link';
 
-export function LoginScreen({ onLogin }: { onLogin: (token: string, user: any) => void }) {
+interface Props {
+  // Нода, через яку відбудеться вхід (авто-вибір: домашня → найшвидша).
+  node: LoginNode | null;
+  // Ручний вибір іншої ноди зі списку (перед введенням коду).
+  onPickNode: (n: LoginNode) => void;
+  onLogin: (token: string, user: AuthUser, sessionExpiresAt?: string) => void;
+}
+
+export function LoginScreen({ node, onPickNode, onLogin }: Props) {
   const [phone, setPhone] = useState('+380');
   const [code, setCode] = useState('');
   const [step, setStep] = useState<'phone' | 'code'>('phone');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [nodes, setNodes] = useState<LoginNode[]>([]);
+  const [loadingNodes, setLoadingNodes] = useState(false);
+
+  const togglePicker = async () => {
+    const next = !pickerOpen;
+    setPickerOpen(next);
+    if (next && nodes.length === 0) {
+      setLoadingNodes(true);
+      try {
+        const list = await probeAllStatus();
+        setNodes(list.map(n => ({ id: n.id, label: n.label, url: n.url, ms: n.ms })));
+      } catch (e: any) {
+        setError(`Ноди: ${e?.message || e}`);
+      } finally {
+        setLoadingNodes(false);
+      }
+    }
+  };
 
   const requestCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (!node) { setError('Нема доступної ноди — перевірте мережу'); return; }
     setLoading(true);
     try {
       const r = await auth.requestCode(phone);
@@ -34,7 +64,7 @@ export function LoginScreen({ onLogin }: { onLogin: (token: string, user: any) =
     setLoading(true);
     try {
       const r = await auth.verifyCode(phone, code);
-      onLogin(r.token, r.user);
+      onLogin(r.token, r.user, r.session_expires_at);
     } catch (e: any) {
       setError(e?.message || 'Помилка');
     } finally {
@@ -49,6 +79,15 @@ export function LoginScreen({ onLogin }: { onLogin: (token: string, user: any) =
         <h1>FotoPacients Agent</h1>
         <p className="login-sub">Авторизація за номером телефону</p>
 
+        <NodeBanner
+          node={node}
+          open={pickerOpen}
+          nodes={nodes}
+          loading={loadingNodes}
+          onToggle={togglePicker}
+          onPick={(n) => { onPickNode(n); setPickerOpen(false); }}
+        />
+
         {step === 'phone' && (
           <form onSubmit={requestCode}>
             <label>Телефон</label>
@@ -59,7 +98,7 @@ export function LoginScreen({ onLogin }: { onLogin: (token: string, user: any) =
               placeholder="+380XXXXXXXXX"
               autoFocus
             />
-            <button type="submit" disabled={loading || phone.length < 10}>
+            <button type="submit" disabled={loading || phone.length < 10 || !node}>
               {loading ? 'Надсилаємо…' : 'Отримати код у Telegram'}
             </button>
             {error && <div className="login-err">{error}</div>}
@@ -99,6 +138,57 @@ export function LoginScreen({ onLogin }: { onLogin: (token: string, user: any) =
           </form>
         )}
       </div>
+    </div>
+  );
+}
+
+// Банер активної ноди входу + згортний список для ручного вибору.
+function NodeBanner({
+  node, open, nodes, loading, onToggle, onPick,
+}: {
+  node: LoginNode | null;
+  open: boolean;
+  nodes: LoginNode[];
+  loading: boolean;
+  onToggle: () => void;
+  onPick: (n: LoginNode) => void;
+}) {
+  return (
+    <div className="login-node">
+      <div className="login-node-row">
+        <span className={`dot ${node ? (node.ms === null ? 'offline' : 'fast') : 'offline'}`} />
+        <span className="login-node-label">
+          {node ? <>Вхід через <strong>{node.label}</strong></> : 'Пошук доступної ноди…'}
+          {node?.ms != null && <span className="muted small"> · {node.ms.toFixed(0)} мс</span>}
+        </span>
+        <button type="button" className="link" onClick={onToggle}>
+          {open ? 'сховати' : 'змінити ноду'}
+        </button>
+      </div>
+      {open && (
+        <div className="login-node-list">
+          {loading && <div className="muted small">Перевірка нод…</div>}
+          {!loading && nodes.length === 0 && <div className="muted small">Ноди недоступні</div>}
+          {nodes.map(n => {
+            const reachable = n.ms !== null;
+            const active = node?.id === n.id;
+            return (
+              <button
+                key={n.id}
+                type="button"
+                className={`login-node-item ${active ? 'active' : ''}`}
+                disabled={!reachable}
+                onClick={() => reachable && onPick(n)}
+              >
+                <span className={`dot ${reachable ? (active ? 'active' : 'up') : 'down'}`} />
+                <strong>{n.label}</strong>
+                <span className="muted small node-url"> {n.url}</span>
+                <span className="ms">{reachable ? `${(n.ms ?? 0).toFixed(0)} мс` : 'недоступна'}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
