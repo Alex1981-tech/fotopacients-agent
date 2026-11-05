@@ -1,6 +1,6 @@
 import { readFile, stat } from '@tauri-apps/plugin-fs';
 import { load, Store } from '@tauri-apps/plugin-store';
-import type { Mode, TaskStatus, UploadTask } from './types';
+import type { ImagingKind, TaskStatus, UploadTask } from './types';
 import { getApi } from './api';
 
 // Використовуємо НАТИВНИЙ window.fetch — tauri-plugin-http fetch не вміє
@@ -101,20 +101,18 @@ class UploadQueue {
   }
 
   enqueue(opts: {
-    mode: Mode;
+    kind: ImagingKind;
     patient_id: string;
     patient_name: string;
-    appointment_id?: string;
     files: { path: string; name: string; size: number }[];
     node_id: string;
   }): UploadTask {
     const id = crypto.randomUUID();
     const task: UploadTask = {
       id,
-      mode: opts.mode,
+      kind: opts.kind,
       patient_id: opts.patient_id,
       patient_name: opts.patient_name,
-      appointment_id: opts.appointment_id,
       files: opts.files,
       status: 'queued',
       progress: 0,
@@ -179,18 +177,24 @@ class UploadQueue {
     try {
       const api = getApi();
       if (!api.baseUrl || !api.token) throw new Error('Не авторизовано');
-      const fieldName = task.mode === 'ct' ? 'file' : 'photos';
+      if (!task.kind) {
+        // Задача з версії до 0.2.0 (аналізи) — такий потік прибрано.
+        task.status = 'failed';
+        task.error = 'Аналізи більше не завантажуються агентом';
+        task.finished_at = Date.now();
+        this.notify();
+        return;
+      }
       const form = new FormData();
+      form.append('kind', task.kind);
       for (const f of task.files) {
         const bytes = await readFile(f.path);
         const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-        form.append(fieldName, new Blob([buf]), f.name);
+        form.append('photos', new Blob([buf]), f.name);
       }
       // force=true → backend збереже навіть якщо це дубль (user підтвердив).
       if (task.force) form.append('force', 'true');
-      const path = task.mode === 'ct'
-        ? `/api/agent/appointments/${task.appointment_id}/ct-upload/`
-        : `/api/agent/patients/${task.patient_id}/upload-analysis/`;
+      const path = `/api/agent/patients/${task.patient_id}/upload-imaging/`;
 
       task.progress = 0;
       this.notify();
@@ -229,6 +233,15 @@ class UploadQueue {
             task.finished_at = Date.now();
             this.notify();
             resolve();
+          } else if (xhr.status === 400) {
+            // Сервер відхилив файл (не КТ / не зображення) — повтор не допоможе.
+            let msg = xhr.responseText;
+            try { msg = JSON.parse(xhr.responseText).error || msg; } catch { /* текст як є */ }
+            task.status = 'failed';
+            task.error = String(msg).slice(0, 200);
+            task.finished_at = Date.now();
+            this.notify();
+            resolve();
           } else {
             reject(new Error(`HTTP ${xhr.status}: ${String(xhr.responseText).slice(0, 200)}`));
           }
@@ -240,8 +253,8 @@ class UploadQueue {
         xhr.send(form);
       });
 
-      // Дубль — лишаємо статус 'duplicate', не позначаємо done (чекаємо forceUpload).
-      if (task.status === 'duplicate') return;
+      // Дубль чекає forceUpload; відхилений сервером файл — уже failed.
+      if (task.status === 'duplicate' || task.status === 'failed') return;
 
       task.status = 'done';
       task.progress = 100;
@@ -264,10 +277,9 @@ class UploadQueue {
   }
 
   async addFile(path: string, opts: {
-    mode: Mode;
+    kind: ImagingKind;
     patient_id: string;
     patient_name: string;
-    appointment_id?: string;
     node_id: string;
   }): Promise<UploadTask> {
     const fileName = path.split(/[\\/]/).pop() || 'file';

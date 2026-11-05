@@ -119,6 +119,89 @@ fn zip_folder(src: String) -> Result<String, String> {
     Ok(out.to_string_lossy().to_string())
 }
 
+fn looks_dicom(head: &[u8]) -> bool {
+    head.len() >= 132 && &head[128..132] == b"DICM"
+}
+
+fn is_dicom_name(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.ends_with(".dcm") || lower.rsplit(['/', '\\']).next() == Some("dicomdir")
+}
+
+/// Чи це джерело КТ: "ct" | "not_ct" | "unknown". Папка й .zip — шукаємо
+/// DICOM (ім'я .dcm/DICOMDIR або магія `DICM` на offset 128, як на сервері);
+/// .isz — CBCT-образ за визначенням; .rar/.7z тут не відкрити → "unknown",
+/// остаточно перевіряє сервер. Решта — "not_ct".
+#[tauri::command]
+fn probe_ct(path: String) -> String {
+    use std::io::Read;
+    use std::path::Path;
+
+    const MAX_PROBE: usize = 200;
+    let p = Path::new(&path);
+    if p.is_dir() {
+        let mut stack = vec![p.to_path_buf()];
+        let mut probed = 0usize;
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for entry in entries.flatten() {
+                let ep = entry.path();
+                if ep.is_dir() {
+                    stack.push(ep);
+                    continue;
+                }
+                if is_dicom_name(&ep.to_string_lossy()) {
+                    return "ct".into();
+                }
+                if probed >= MAX_PROBE {
+                    continue;
+                }
+                probed += 1;
+                let mut head = [0u8; 132];
+                if let Ok(mut f) = std::fs::File::open(&ep) {
+                    if f.read_exact(&mut head).is_ok() && looks_dicom(&head) {
+                        return "ct".into();
+                    }
+                }
+            }
+        }
+        return "not_ct".into();
+    }
+    let ext = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "isz" => "ct".into(),
+        "rar" | "7z" => "unknown".into(),
+        "zip" => {
+            let Ok(file) = std::fs::File::open(p) else { return "not_ct".into() };
+            let Ok(mut zip) = zip::ZipArchive::new(file) else { return "not_ct".into() };
+            if zip.file_names().any(is_dicom_name) {
+                return "ct".into();
+            }
+            let mut probed = 0usize;
+            for i in 0..zip.len() {
+                if probed >= MAX_PROBE {
+                    break;
+                }
+                let Ok(mut member) = zip.by_index(i) else { continue };
+                if member.is_dir() {
+                    continue;
+                }
+                probed += 1;
+                let mut head = [0u8; 132];
+                if member.read_exact(&mut head).is_ok() && looks_dicom(&head) {
+                    return "ct".into();
+                }
+            }
+            "not_ct".into()
+        }
+        _ => "not_ct".into(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -182,7 +265,59 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .invoke_handler(tauri::generate_handler![show_window, hide_window, get_local_ip, get_clipboard_files, zip_folder])
+        .invoke_handler(tauri::generate_handler![show_window, hide_window, get_local_ip, get_clipboard_files, zip_folder, probe_ct])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::probe_ct;
+    use std::io::Write;
+
+    fn dicom() -> Vec<u8> {
+        let mut v = vec![0u8; 128];
+        v.extend_from_slice(b"DICM");
+        v.extend_from_slice(&[0u8; 16]);
+        v
+    }
+
+    fn tmp(name: &str) -> std::path::PathBuf {
+        let mut d = std::env::temp_dir();
+        d.push(format!("probe-ct-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn folder_with_dicom_without_extension_is_ct() {
+        let d = tmp("dir-ct");
+        std::fs::create_dir_all(d.join("series")).unwrap();
+        std::fs::write(d.join("series").join("0001"), dicom()).unwrap();
+        assert_eq!(probe_ct(d.to_string_lossy().into()), "ct");
+    }
+
+    #[test]
+    fn folder_with_photos_is_not_ct() {
+        let d = tmp("dir-photo");
+        std::fs::write(d.join("a.jpg"), b"\xff\xd8\xff not dicom").unwrap();
+        assert_eq!(probe_ct(d.to_string_lossy().into()), "not_ct");
+    }
+
+    #[test]
+    fn zip_probe() {
+        let d = tmp("zip");
+        for (name, member, data) in [("ct.zip", "0001", dicom()), ("docs.zip", "a.txt", b"hi".to_vec())] {
+            let f = std::fs::File::create(d.join(name)).unwrap();
+            let mut z = zip::ZipWriter::new(f);
+            z.start_file(member, zip::write::SimpleFileOptions::default()).unwrap();
+            z.write_all(&data).unwrap();
+            z.finish().unwrap();
+        }
+        assert_eq!(probe_ct(d.join("ct.zip").to_string_lossy().into()), "ct");
+        assert_eq!(probe_ct(d.join("docs.zip").to_string_lossy().into()), "not_ct");
+        assert_eq!(probe_ct(d.join("x.rar").to_string_lossy().into()), "unknown");
+        assert_eq!(probe_ct(d.join("x.pdf").to_string_lossy().into()), "not_ct");
+    }
 }

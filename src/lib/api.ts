@@ -1,5 +1,5 @@
 import { fetch } from '@tauri-apps/plugin-http';
-import type { Appointment, AuthUser, Patient } from './types';
+import type { AuthUser, Patient } from './types';
 
 export interface ApiConfig {
   baseUrl: string;
@@ -91,17 +91,6 @@ export const patients = {
   search(query: string) {
     return call<PatientSearchResp>(
       `/api/patients/?q=${encodeURIComponent(query)}`,
-    );
-  },
-  recentAppointments(patient_id: string) {
-    return call<{ patient: Patient; appointments: Appointment[] }>(
-      `/api/agent/patients/${patient_id}/recent-appointments/`,
-    );
-  },
-  promoteVisit(visit_id: string) {
-    return call<{ appointment_id: string; created: boolean }>(
-      `/api/agent/visits/${visit_id}/promote/`,
-      { method: 'POST' },
     );
   },
 };

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { queue } from '../lib/upload';
-import type { UploadTask } from '../lib/types';
+import { KIND_LABEL, type UploadTask } from '../lib/types';
 
 function fmtSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -86,7 +86,7 @@ export function UploadQueue() {
                     → <strong>{t.patient_name}</strong>
                   </div>
                   <div className="qcard-meta">
-                    {fmtSize(totalSize)} · {t.mode === 'ct' ? 'КТ' : 'Аналізи'} · {t.node_id}
+                    {fmtSize(totalSize)} · {t.kind ? KIND_LABEL[t.kind] : 'Аналізи'} · {t.node_id}
                     {t.status === 'uploading' && (
                       <> · <strong>{t.progress}%</strong>
                       {t.speed_mbps != null && t.speed_mbps > 0 && ` · ${t.speed_mbps.toFixed(1)} МБ/с`}

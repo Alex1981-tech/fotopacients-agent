@@ -3,7 +3,7 @@ import { ClipboardToast } from './components/ClipboardToast';
 import { LoginScreen } from './components/LoginScreen';
 import { Settings } from './components/Settings';
 import { UploadQueue } from './components/UploadQueue';
-import { UnifiedMode } from './modes/UnifiedMode';
+import { UnifiedMode, type Incoming } from './modes/UnifiedMode';
 import { setApi } from './lib/api';
 import { pickFastest, probePinned, type NodeProbe } from './lib/node-picker';
 import { clearAuth, getSettings, setSetting } from './lib/store';
@@ -47,6 +47,8 @@ export function App() {
   const [gate, setGate] = useState<Gate | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ kind: 'idle' });
+  // КТ/рентген з буфера обміну, які користувач вирішив завантажити.
+  const [incoming, setIncoming] = useState<Incoming | null>(null);
 
   // setGate зі стабільною ідентичністю — використовуємо в api.onUnauthorized.
   const setGateRef = useRef(setGate);
@@ -232,7 +234,7 @@ export function App() {
 
       <main className="workspace">
         <section className="upload-pane">
-          <UnifiedMode nodeId={pinned?.id || 'unknown'} />
+          <UnifiedMode nodeId={pinned?.id || 'unknown'} incoming={incoming} />
         </section>
         <aside className="queue-pane">
           <h3>Задачі</h3>
@@ -240,7 +242,7 @@ export function App() {
         </aside>
       </main>
 
-      <ClipboardToast onOpen={() => { /* path лишається в clipboard, юзер ще раз drop-не */ }} />
+      <ClipboardToast onOpen={(paths) => setIncoming(prev => ({ seq: (prev?.seq ?? 0) + 1, paths }))} />
 
       {settingsOpen && (
         <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>

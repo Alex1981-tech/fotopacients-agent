@@ -1,8 +1,7 @@
 import { load, Store } from '@tauri-apps/plugin-store';
-import type { AgentSettings, Mode } from './types';
+import type { AgentSettings } from './types';
 
 const DEFAULT_SETTINGS: AgentSettings = {
-  mode: 'ct',
   token: null,
   user: null,
   preferred_node_id: null,
@@ -40,7 +39,6 @@ export async function setSetting<K extends keyof AgentSettings>(
   await store.set(key, value);
 }
 
-export async function setMode(mode: Mode) { await setSetting('mode', mode); }
 export async function clearAuth() {
   await setSetting('token', null);
   await setSetting('user', null);

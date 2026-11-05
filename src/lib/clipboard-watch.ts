@@ -3,20 +3,21 @@ import { invoke } from '@tauri-apps/api/core';
 
 /**
  * Polling-watcher буферу обміну. Два джерела:
- *   1. HDROP (Windows CF_HDROP) — коли користувач робить Ctrl+C на файлі
- *      у Провіднику. Читаємо через Rust-команду `get_clipboard_files`
+ *   1. HDROP (Windows CF_HDROP) — коли користувач робить Ctrl+C на файлах
+ *      чи папках у Провіднику. Читаємо через Rust-команду `get_clipboard_files`
  *      (tauri clipboard plugin це не вміє).
  *   2. Plain text path — коли користувач робить «Copy as path»
- *      (Shift+правий клік або Ctrl+Shift+C у Windows 11). Тут перевіряємо
- *      regex.
+ *      (Shift+правий клік або Ctrl+Shift+C у Windows 11).
+ * Віддає всі шляхи (і папки — КТ часто копіюють папкою); що з них КТ чи
+ * рентген, вирішує викликач (lib/imaging).
  */
 const POLL_MS = 1200;
-const PATH_RX = /^[A-Z]:\\[^\n\r]+\.(zip|rar|7z|isz|jpg|jpeg|png|webp|heic|heif|pdf|doc|docx|xls|xlsx|tif|tiff|mov|mp4|m4v)$/i;
-const EXT_RX = /\.(zip|rar|7z|isz|jpg|jpeg|png|webp|heic|heif|pdf|doc|docx|xls|xlsx|tif|tiff|mov|mp4|m4v)$/i;
+const PATH_RX = /^[A-Z]:\\[^\n\r]+$/i;
 
-type Handler = (path: string) => void;
+type Handler = (paths: string[]) => void;
 
-let lastSeen = '';
+// null — ще не читали: те, що лежало в буфері до старту агента, не показуємо.
+let lastSeen: string | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let handler: Handler | null = null;
 
@@ -29,40 +30,34 @@ async function readHdrop(): Promise<string[]> {
   }
 }
 
+async function readTextPaths(): Promise<string[]> {
+  const txt = (await readText()) || '';
+  return txt
+    .split(/\r?\n/)
+    .map(l => l.trim().replace(/^"|"$/g, ''))
+    .filter(l => PATH_RX.test(l));
+}
+
 async function tick() {
   if (!handler) return;
   try {
-    // 1) HDROP — копіювання файлу у Провіднику Windows (Ctrl+C на файлі).
-    const files = await readHdrop();
-    if (files.length > 0) {
-      const first = files.find(f => EXT_RX.test(f));
-      if (first && first !== lastSeen) {
-        lastSeen = first;
-        handler(first);
-        return;
-      }
-    }
-    // 2) Plain text — «Copy as path» (Shift+ПКМ).
-    const txt = (await readText()) || '';
-    if (!txt || txt === lastSeen) return;
-    lastSeen = txt;
-    const lines = txt.split(/\r?\n/).map(l => l.trim().replace(/^"|"$/g, '')).filter(Boolean);
-    for (const line of lines) {
-      if (PATH_RX.test(line)) {
-        handler(line);
-        return;
-      }
-    }
+    let paths = await readHdrop();
+    if (paths.length === 0) paths = await readTextPaths();
+    const key = paths.join('\n');
+    const primed = lastSeen !== null;
+    if (key === lastSeen) return;
+    lastSeen = key;
+    if (primed && key) handler(paths);
   } catch { /* ignore */ }
 }
 
-export function startClipboardWatch(onPath: Handler): () => void {
-  handler = onPath;
+export function startClipboardWatch(onPaths: Handler): () => void {
+  handler = onPaths;
   if (!timer) {
     timer = setInterval(() => { void tick(); }, POLL_MS);
   }
   return () => {
-    if (handler === onPath) handler = null;
+    if (handler === onPaths) handler = null;
     if (timer && !handler) { clearInterval(timer); timer = null; }
   };
 }

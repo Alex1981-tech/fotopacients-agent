@@ -1,4 +1,11 @@
-export type Mode = 'ct' | 'analysis';
+// Що агент вантажить: лише КТ (архів з DICOM) і рентгени. Інших файлів немає.
+export type ImagingKind = 'ct' | 'panoramic' | 'periapical';
+
+export const KIND_LABEL: Record<ImagingKind, string> = {
+  ct: 'КТ',
+  panoramic: 'Панорама',
+  periapical: 'Прицільний',
+};
 
 export interface Node {
   id: string;
@@ -15,16 +22,6 @@ export interface Patient {
   birth_date: string | null;
 }
 
-export interface Appointment {
-  id: string;
-  kind?: 'appointment' | 'visit';
-  date: string;
-  doctor_name: string;
-  department: string;
-  procedure: string;
-  doc_number: string;
-}
-
 export type TaskStatus = 'queued' | 'uploading' | 'done' | 'failed' | 'duplicate';
 
 export interface DuplicateInfo {
@@ -36,10 +33,9 @@ export interface DuplicateInfo {
 
 export interface UploadTask {
   id: string;
-  mode: Mode;
+  kind?: ImagingKind;           // відсутній у задачах до 0.2.0 (аналізи)
   patient_id: string;
   patient_name: string;
-  appointment_id?: string; // для КТ
   files: { path: string; name: string; size: number }[];
   status: TaskStatus;
   progress: number; // 0..100
@@ -79,7 +75,6 @@ export interface LoginNode {
 }
 
 export interface AgentSettings {
-  mode: Mode;
   token: string | null;
   user: AuthUser | null;
   preferred_node_id: string | null;
