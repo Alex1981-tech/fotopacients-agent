@@ -70,6 +70,18 @@ export const auth = {
       body: JSON.stringify({ phone, code }),
     });
   },
+  /** Вхід за QR (20.11.2026): код + посилання на бота для QR */
+  qrStart(device: string) {
+    return call<{ token: string; url: string; expires_in: number }>('/api/agent/auth/qr/start/', {
+      method: 'POST',
+      body: JSON.stringify({ device }),
+    });
+  },
+  /** pending | scanned | denied | expired — або токен після «Увійти» в боті */
+  qrStatus(token: string) {
+    return call<{ status: string; detail?: string } & Partial<VerifyCodeResp>>(
+      `/api/agent/auth/qr/status/?token=${encodeURIComponent(token)}`);
+  },
   revoke() {
     return call<{ status: string }>('/api/agent/auth/revoke/', { method: 'POST' });
   },

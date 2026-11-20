@@ -634,3 +634,21 @@ body { background: var(--surface-2); }
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
   .pbar.is-indeterminate > span { width: 100%; opacity: 0.5; }
 }
+
+/* ── Вхід за QR (20.11.2026) ── */
+.login-screen { background: var(--surface-2); }
+.login-card { background: var(--surface); border: 1px solid var(--line); box-shadow: 0 10px 40px rgba(15, 23, 42, 0.08); }
+.login-mark { margin: 0 auto 10px; width: 44px; height: 44px; border-radius: 12px; font-size: 16px; }
+.login-card h1 { font-size: 19px; margin: 0 0 12px; }
+.qr-box { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 6px 0 4px; animation: rise var(--t) var(--ease-out) both; }
+.qr-code { padding: 12px; border-radius: 16px; background: #fff; border: 1px solid var(--line); line-height: 0; }
+.qr-skeleton { width: 214px; height: 214px; border-radius: 16px; background: linear-gradient(90deg, var(--surface-2), var(--line), var(--surface-2)); background-size: 200% 100%; animation: shimmer-bg 1.2s linear infinite; }
+.qr-steps { margin: 0; padding-left: 20px; text-align: left; font-size: 13.5px; line-height: 1.7; color: var(--text); }
+.qr-sub { font-size: 12.5px; color: var(--text-muted); }
+.qr-scanned { padding: 28px 0; }
+.qr-check { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: rgba(52, 199, 89, 0.15); color: var(--ok); font-size: 26px; font-weight: 700; animation: pop 320ms var(--ease-out) both; }
+.qr-title { font-size: 16px; font-weight: 650; }
+.login-switch { margin-top: 10px; }
+.login-hint { margin-top: 10px; font-size: 12.5px; color: var(--text-muted); line-height: 1.5; text-align: left; }
+@keyframes shimmer-bg { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@keyframes pop { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: none; } }
