@@ -1,5 +1,6 @@
 import { readFile, stat } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 /**
  * Агент приймає лише КТ і рентгени:
@@ -43,18 +44,34 @@ export async function classifyPaths(paths: string[]): Promise<Classified> {
   return out;
 }
 
-/** Папки КТ → .zip (нативний Rust), архіви — як є. */
+export interface PreparedCt {
+  path: string;
+  /** Назва для черги й сервера: папка «Гула КТ» → «Гула КТ.zip» */
+  name: string;
+  /** Тимчасовий архів агента — видаляємо після завантаження */
+  temp: boolean;
+}
+
+/** Папки КТ → .zip (нативний Rust, у фоні, з прогресом), архіви — як є. */
 export async function zipCtFolders(
   paths: string[],
-  onZipStart?: (folderName: string) => void,
-): Promise<string[]> {
-  const result: string[] = [];
+  onProgress?: (folderName: string, done: number, total: number) => void,
+): Promise<PreparedCt[]> {
+  const result: PreparedCt[] = [];
   for (const path of paths) {
     if ((await stat(path)).isDirectory) {
-      onZipStart?.(fileName(path));
-      result.push(await invoke<string>('zip_folder', { src: path }));
+      const name = fileName(path);
+      onProgress?.(name, 0, 0);
+      const stop = await listen<{ src: string; done: number; total: number }>('zip-progress', e => {
+        if (e.payload.src === path) onProgress?.(name, e.payload.done, e.payload.total);
+      });
+      try {
+        result.push({ path: await invoke<string>('zip_folder', { src: path }), name: `${name}.zip`, temp: true });
+      } finally {
+        stop();
+      }
     } else {
-      result.push(path);
+      result.push({ path, name: fileName(path), temp: false });
     }
   }
   return result;

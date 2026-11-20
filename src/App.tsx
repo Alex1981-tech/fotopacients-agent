@@ -5,7 +5,7 @@ import { Settings } from './components/Settings';
 import { UploadQueue } from './components/UploadQueue';
 import { UnifiedMode, type Incoming } from './modes/UnifiedMode';
 import { setApi } from './lib/api';
-import { pickFastest, probePinned, type NodeProbe } from './lib/node-picker';
+import { isWorkNode, pickFastest, probePinned, type NodeProbe } from './lib/node-picker';
 import { clearAuth, getSettings, setSetting } from './lib/store';
 import { startAutoUpdate, type UpdateStatus } from './lib/updater';
 import { queue } from './lib/upload';
@@ -88,8 +88,9 @@ export function App() {
       const s = await getSettings();
       await queue.hydrate();
 
+      // Сесія на DEV (стара версія агента чіплялась до нього) — не продовжуємо, перелогін на робочу ноду
       const sessionAlive =
-        s.token && s.user && s.pinned_node &&
+        s.token && s.user && s.pinned_node && isWorkNode(s.pinned_node.id) &&
         (!s.session_expires_at || Date.now() < s.session_expires_at);
 
       if (sessionAlive && s.pinned_node) {
@@ -98,6 +99,7 @@ export function App() {
         setPinned(s.pinned_node);
         setSessionExpiresAt(s.session_expires_at);
         setApi({ baseUrl: s.pinned_node.url, token: s.token });
+        queue.resumePending();
         const ms = await probePinned(s.pinned_node.url);
         setNodeMs(ms);
         if (ms === null) setGate('node-down');
@@ -163,6 +165,7 @@ export function App() {
     await setSetting('preferred_node_id', pin?.id ?? null);
     await setSetting('session_expires_at', expMs);
     setApi({ baseUrl: pin?.url || '', token: tok });
+    queue.resumePending();
     const ms = await probePinned(pin?.url || '');
     setNodeMs(ms);
   };
@@ -197,47 +200,33 @@ export function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="user-chip" title={user.username}>
-          <span className="avatar">{initials}</span>
-          <div className="user-meta">
-            <div className="user-name">{fullName}</div>
-            <div className="user-role">{user.role}</div>
-          </div>
+      <header className="bar">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true">FP</span>
+          <span className="brand-name">FotoPacients</span>
+          <span className="brand-sub">агент</span>
         </div>
-
-        <div className="conn-badge" title={pinned ? `${pinned.label} · ${pinned.url}` : 'Без зв\'язку'}>
+        <div className="bar-spacer" />
+        <UpdatePill status={updateStatus} />
+        <span className={`node-chip ${dotClass}`}
+          title={pinned ? `${pinned.label} · ${pinned.url}` : 'Без звʼязку'}>
           <span className={`dot ${dotClass}`} />
-          {pinned ? (
-            <>
-              <span>Підключено до <strong>{pinned.label}</strong></span>
-              {nodeMs !== null
-                ? <span className="conn-ms">{nodeMs.toFixed(0)} мс</span>
-                : <span className="conn-ms">недоступна</span>}
-            </>
-          ) : <span>Без зв'язку</span>}
-        </div>
-
-        <div className="topbar-right">
-          <UpdatePill status={updateStatus} />
-          <span className="version-pill" title="Версія додатку">v{APP_VERSION}</span>
-          <button
-            className="icon-btn"
-            onClick={() => setSettingsOpen(true)}
-            title="Налаштування"
-            aria-label="Налаштування"
-          >
-            <SettingsIcon />
-          </button>
-        </div>
+          <span className="node-label">{pinned ? pinned.label : 'Без звʼязку'}</span>
+          {pinned && <span className="node-ms">{nodeMs !== null ? `${nodeMs.toFixed(0)} мс` : 'недоступна'}</span>}
+        </span>
+        <button type="button" className="user-btn" onClick={() => setSettingsOpen(true)}
+          title={`${fullName} · налаштування`} aria-label="Налаштування">
+          <span className="avatar">{initials}</span>
+          <span className="user-name">{fullName}</span>
+          <SettingsIcon />
+        </button>
       </header>
 
-      <main className="workspace">
-        <section className="upload-pane">
+      <main className="ws">
+        <section className="ws-main">
           <UnifiedMode nodeId={pinned?.id || 'unknown'} incoming={incoming} />
         </section>
-        <aside className="queue-pane">
-          <h3>Задачі</h3>
+        <aside className="ws-side">
           <UploadQueue />
         </aside>
       </main>
@@ -248,7 +237,7 @@ export function App() {
         <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-head">
-              <h2>Налаштування</h2>
+              <h2>Налаштування <span className="muted small">v{APP_VERSION}</span></h2>
               <button className="icon-btn" onClick={() => setSettingsOpen(false)} aria-label="Закрити">✕</button>
             </div>
             <div className="modal-body">

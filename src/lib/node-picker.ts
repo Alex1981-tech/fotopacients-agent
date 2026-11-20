@@ -9,6 +9,10 @@ const DEFAULT_DISCOVERY_URL = 'https://photo.vidnova.app';
 
 const TIMEOUT_MS = 2500;
 
+// DEV — сервер розробки, не робоча нода: агент до нього не підключається ніколи (20.11.2026).
+// Він стоїть у тій самій /24, що й ПК клініки, і раніше підхоплювався як «домашня» нода.
+export const isWorkNode = (id: string | undefined) => !!id && id.toUpperCase() !== 'DEV';
+
 interface RawNode {
   id: string;
   label: string;
@@ -79,14 +83,15 @@ async function loadNodes(): Promise<RawNode[]> {
 
   // Спочатку пробуємо отримати свіжий конфіг
   const fresh = await fetchDiscovery(discoveryUrl);
-  if (fresh?.nodes?.length) {
-    await setSetting('nodes_cache' as any, fresh.nodes as any);
+  const work = (list: RawNode[]) => list.filter(n => isWorkNode(n.id));
+  if (fresh?.nodes?.length && work(fresh.nodes).length) {
+    await setSetting('nodes_cache' as any, work(fresh.nodes) as any);
     await setSetting('fallback_url' as any, fresh.fallback_url as any);
-    return fresh.nodes;
+    return work(fresh.nodes);
   }
   // Якщо discovery недоступний — використовуємо кеш
-  const cached = (settings as any).nodes_cache as RawNode[] | undefined;
-  if (cached?.length) return cached;
+  const cached = work(((settings as any).nodes_cache as RawNode[] | undefined) ?? []);
+  if (cached.length) return cached;
   // Останній fallback — discoveryUrl як єдина «нода»
   return [{ id: 'fallback', label: 'Discovery', ts_url: discoveryUrl }];
 }

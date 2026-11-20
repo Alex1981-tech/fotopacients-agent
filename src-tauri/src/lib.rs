@@ -1,7 +1,7 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, WindowEvent,
+    AppHandle, Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -56,67 +56,129 @@ fn get_clipboard_files() -> Vec<String> {
     }
 }
 
-/// Архівує папку `src` у .zip і повертає шлях до створеного архіву (у
-/// системному temp). Використовується КТ-режимом: коли користувач кидає
-/// папку зі знімками замість готового архіву — пакуємо її автоматично
-/// перед завантаженням. Імена всередині архіву — відносно кореня папки.
+#[derive(Clone, serde::Serialize)]
+struct ZipProgress {
+    src: String,
+    done: u64,
+    total: u64,
+}
+
+/// Папка КТ → .zip у системному temp (20.11.2026: у фоні, без стиснення).
+/// Раніше пакувалось у головному потоці з Deflate — на папці 1–2 ГБ вікно «зависало».
+/// DICOM майже не стискається, тож Stored у рази швидший. Прогрес — подія `zip-progress`.
 #[tauri::command]
-fn zip_folder(src: String) -> Result<String, String> {
+async fn zip_folder(app: AppHandle, src: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || zip_folder_blocking(&app, &src))
+        .await
+        .map_err(|e| format!("zip task: {e}"))?
+}
+
+fn collect_files(base: &std::path::Path) -> Result<Vec<std::path::PathBuf>, String> {
+    let mut out = Vec::new();
+    let mut stack = vec![base.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).map_err(|e| format!("read_dir: {e}"))? {
+            let path = entry.map_err(|e| format!("entry: {e}"))?.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+fn zip_folder_blocking(app: &AppHandle, src: &str) -> Result<String, String> {
     use std::fs::File;
     use std::path::Path;
     use zip::write::SimpleFileOptions;
 
-    let base = Path::new(&src);
+    let base = Path::new(src);
     if !base.is_dir() {
         return Err(format!("не папка: {src}"));
     }
-    let folder_name = base
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("ct");
-
-    // Унікальний суфікс щоб повторні/паралельні запаковки не перезаписали одна одну.
+    let files = collect_files(base)?;
+    if files.is_empty() {
+        return Err("папка порожня — нічого архівувати".into());
+    }
+    let folder_name = base.file_name().and_then(|n| n.to_str()).unwrap_or("ct");
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let mut out = std::env::temp_dir();
-    out.push(format!("{folder_name}-{stamp}.zip"));
+    out.push(format!("fpagent-{stamp}-{folder_name}.zip"));
 
     let file = File::create(&out).map_err(|e| format!("create zip: {e}"))?;
-    let mut zip = zip::ZipWriter::new(file);
+    let mut zip = zip::ZipWriter::new(std::io::BufWriter::new(file));
     let options = SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated)
+        .compression_method(zip::CompressionMethod::Stored)
         .large_file(true);
-
-    let mut stack = vec![base.to_path_buf()];
-    let mut entries = 0u64;
-    while let Some(dir) = stack.pop() {
-        for entry in std::fs::read_dir(&dir).map_err(|e| format!("read_dir: {e}"))? {
-            let entry = entry.map_err(|e| format!("entry: {e}"))?;
-            let path = entry.path();
-            let rel = path
-                .strip_prefix(base)
-                .map_err(|e| format!("strip_prefix: {e}"))?;
-            let name = rel.to_string_lossy().replace('\\', "/");
-            if path.is_dir() {
-                zip.add_directory(format!("{name}/"), options)
-                    .map_err(|e| format!("add_directory: {e}"))?;
-                stack.push(path);
-            } else {
-                zip.start_file(&name, options)
-                    .map_err(|e| format!("start_file: {e}"))?;
-                let mut f = File::open(&path).map_err(|e| format!("open {name}: {e}"))?;
-                std::io::copy(&mut f, &mut zip).map_err(|e| format!("copy {name}: {e}"))?;
-                entries += 1;
-            }
+    let total = files.len() as u64;
+    for (i, path) in files.iter().enumerate() {
+        let name = path
+            .strip_prefix(base)
+            .map_err(|e| format!("strip_prefix: {e}"))?
+            .to_string_lossy()
+            .replace('\\', "/");
+        zip.start_file(&name, options).map_err(|e| format!("start_file: {e}"))?;
+        let mut f = File::open(path).map_err(|e| format!("open {name}: {e}"))?;
+        std::io::copy(&mut f, &mut zip).map_err(|e| format!("copy {name}: {e}"))?;
+        let done = i as u64 + 1;
+        if done % 25 == 0 || done == total {
+            let _ = app.emit("zip-progress", ZipProgress { src: src.to_string(), done, total });
         }
-    }
-    if entries == 0 {
-        return Err("папка порожня — нічого архівувати".into());
     }
     zip.finish().map_err(|e| format!("finish zip: {e}"))?;
     Ok(out.to_string_lossy().to_string())
+}
+
+/// SHA-256 файлу потоком (для дублів і звірки на сервері) — у фоні, без читання в пам'ять.
+#[tauri::command]
+async fn file_sha256(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use sha2::{Digest, Sha256};
+        use std::io::Read;
+        let mut f = std::fs::File::open(&path).map_err(|e| format!("open: {e}"))?;
+        let mut h = Sha256::new();
+        let mut buf = vec![0u8; 4 * 1024 * 1024];
+        loop {
+            let n = f.read(&mut buf).map_err(|e| format!("read: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            h.update(&buf[..n]);
+        }
+        Ok(format!("{:x}", h.finalize()))
+    })
+    .await
+    .map_err(|e| format!("sha task: {e}"))?
+}
+
+/// Частина файлу для завантаження (сирі байти в JS як ArrayBuffer, без base64).
+#[tauri::command]
+async fn read_chunk(path: String, offset: u64, len: u64) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut f = std::fs::File::open(&path).map_err(|e| format!("open: {e}"))?;
+        f.seek(SeekFrom::Start(offset)).map_err(|e| format!("seek: {e}"))?;
+        let mut buf = Vec::with_capacity(len as usize);
+        f.take(len).read_to_end(&mut buf).map_err(|e| format!("read: {e}"))?;
+        Ok(tauri::ipc::Response::new(buf))
+    })
+    .await
+    .map_err(|e| format!("read task: {e}"))?
+}
+
+/// Прибрати тимчасовий архів агента (лише наші `fpagent-*.zip` у temp — нічого чужого).
+#[tauri::command]
+fn remove_temp_zip(path: String) -> bool {
+    let p = std::path::Path::new(&path);
+    let ours = p.parent() == Some(std::env::temp_dir().as_path())
+        && p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("fpagent-") && n.ends_with(".zip"));
+    ours && std::fs::remove_file(p).is_ok()
 }
 
 fn looks_dicom(head: &[u8]) -> bool {
@@ -265,7 +327,7 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .invoke_handler(tauri::generate_handler![show_window, hide_window, get_local_ip, get_clipboard_files, zip_folder, probe_ct])
+        .invoke_handler(tauri::generate_handler![show_window, hide_window, get_local_ip, get_clipboard_files, zip_folder, probe_ct, file_sha256, read_chunk, remove_temp_zip])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

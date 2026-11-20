@@ -4,12 +4,18 @@ type DropHandler = (paths: string[]) => void;
 
 let activeHandler: DropHandler | null = null;
 let unlistenFn: (() => void) | null = null;
+// Файл тримають над вікном — підсвічуємо зону (Tauri не дає HTML5 dragover у webview)
+const hoverListeners = new Set<(over: boolean) => void>();
+const setHover = (over: boolean) => hoverListeners.forEach(fn => fn(over));
 
 async function ensureListener() {
   if (unlistenFn) return;
   const wv = getCurrentWebview();
   unlistenFn = await wv.onDragDropEvent((event) => {
-    if (event.payload.type !== 'drop') return;
+    const type = event.payload.type;
+    if (type === 'enter' || type === 'over') { setHover(true); return; }
+    setHover(false);
+    if (type !== 'drop') return;
     const paths = event.payload.paths || [];
     if (paths.length === 0 || !activeHandler) return;
     try { activeHandler(paths); } catch (e) { console.error('[drop]', e); }
@@ -28,4 +34,11 @@ export function onTauriDrop(handler: DropHandler): () => void {
   return () => {
     if (activeHandler === handler) activeHandler = null;
   };
+}
+
+/** Підписка на «файл над вікном» (для підсвічування зони). */
+export function onDragHover(fn: (over: boolean) => void): () => void {
+  void ensureListener();
+  hoverListeners.add(fn);
+  return () => { hoverListeners.delete(fn); };
 }

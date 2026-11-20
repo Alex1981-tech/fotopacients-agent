@@ -1,4 +1,5 @@
 import { readFile, stat } from '@tauri-apps/plugin-fs';
+import { invoke } from '@tauri-apps/api/core';
 import { load, Store } from '@tauri-apps/plugin-store';
 import type { ImagingKind, TaskStatus, UploadTask } from './types';
 import { getApi } from './api';
@@ -38,9 +39,16 @@ class UploadQueue {
           // міг бути видалений / агент закрився посередині). Позначаємо як
           // failed, користувач сам вирішить retry / прибрати.
           if (t.status === 'queued' || t.status === 'uploading') {
-            t.status = 'failed';
-            t.error = 'Перерване попереднім запуском — перетягніть файл знову, якщо потрібно';
-            t.progress = 0;
+            if (t.kind === 'ct') {
+              // КТ докачується з того місця, де зупинилось (див. resumePending)
+              t.status = 'queued';
+              t.stage = undefined;
+              t.retry_count = 0;
+            } else {
+              t.status = 'failed';
+              t.error = 'Перерване попереднім запуском — перетягніть файл знову, якщо потрібно';
+              t.progress = 0;
+            }
           }
           this.tasks.set(t.id, t);
         }
@@ -83,6 +91,11 @@ class UploadQueue {
     void this.persist();
   }
 
+  /** Після входу: продовжити незавершені КТ попереднього запуску. */
+  resumePending() {
+    this.tick();
+  }
+
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
     fn(this.list());
@@ -106,6 +119,7 @@ class UploadQueue {
     patient_name: string;
     files: { path: string; name: string; size: number }[];
     node_id: string;
+    temp_zip?: string;
   }): UploadTask {
     const id = crypto.randomUUID();
     const task: UploadTask = {
@@ -119,6 +133,7 @@ class UploadQueue {
       node_id: opts.node_id,
       retry_count: 0,
       created_at: Date.now(),
+      temp_zip: opts.temp_zip,
     };
     this.tasks.set(id, task);
     this.notify();
@@ -152,6 +167,16 @@ class UploadQueue {
 
   remove(taskId: string) {
     if (this.running.has(taskId)) return;
+    const t = this.tasks.get(taskId);
+    if (t?.temp_zip) void invoke('remove_temp_zip', { path: t.temp_zip }).catch(() => {});
+    if (t?.server_upload_id && t.status !== 'done') {
+      // незавершене на ноді — скасовуємо, щоб частини не лежали 48 год
+      const api = getApi();
+      if (api.baseUrl && api.token) {
+        void window.fetch(`${api.baseUrl}/api/agent/uploads/${t.server_upload_id}/`, {
+          method: 'DELETE', headers: { Authorization: `Token ${api.token}` } }).catch(() => {});
+      }
+    }
     this.tasks.delete(taskId);
     this.notify();
   }
@@ -174,6 +199,12 @@ class UploadQueue {
   }
 
   private async run(task: UploadTask): Promise<void> {
+    if (task.kind === 'ct') return this.runChunked(task);
+    return this.runSingle(task);
+  }
+
+  /** Одним запитом (рентгени; КТ — лише якщо нода ще без частинного завантаження) */
+  private async runSingle(task: UploadTask): Promise<void> {
     try {
       const api = getApi();
       if (!api.baseUrl || !api.token) throw new Error('Не авторизовано');
@@ -259,6 +290,10 @@ class UploadQueue {
       task.status = 'done';
       task.progress = 100;
       task.finished_at = Date.now();
+      if (task.temp_zip) {
+        await invoke('remove_temp_zip', { path: task.temp_zip }).catch(() => {});
+        task.temp_zip = undefined;
+      }
       this.notify();
     } catch (e) {
       const err = e instanceof Error ? e.message : String(e);
@@ -276,17 +311,137 @@ class UploadQueue {
     }
   }
 
+  /**
+   * КТ частинами по 8 МБ з докачуванням (20.11.2026). Файл не читається в пам'ять цілком:
+   * SHA-256 і частини — нативно (Rust). Обрив зв'язку — частину повторюємо з паузою, скільки треба;
+   * перезапуск агента — нода віддає, скільки вже прийнято, і йдемо далі.
+   */
+  private async runChunked(task: UploadTask): Promise<void> {
+    const api = getApi();
+    if (!api.baseUrl || !api.token) {
+      task.status = 'queued';
+      task.stage = undefined;
+      this.notify();
+      return;  // повернемось після входу (resumePending)
+    }
+    const file = task.files[0];
+    const headers = { Authorization: `Token ${api.token}` };
+    const url = (p: string) => `${api.baseUrl}/api/agent/uploads/${p}`;
+    const fail = (msg: string) => {
+      task.status = 'failed';
+      task.stage = undefined;
+      task.error = msg.slice(0, 300);
+      task.finished_at = Date.now();
+      this.notify();
+    };
+    const json = async (r: Response) => { try { return await r.json(); } catch { return {}; } };
+    try {
+      if (!task.sha256) {
+        task.stage = 'hashing';
+        this.notify();
+        task.sha256 = await invoke<string>('file_sha256', { path: file.path });
+      }
+      task.stage = 'uploading';
+      this.notify();
+      const start = await this.retrying(task, () => window.fetch(url(''), {
+        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patient_id: task.patient_id, kind: 'ct', filename: file.name, size: file.size,
+                               sha256: task.sha256, force: !!task.force }),
+      }));
+      if (start.status === 404) {
+        // Нода ще не оновлена (частинне завантаження з'явилось у FP разом з агентом 0.3) — як раніше
+        task.stage = undefined;
+        this.notify();
+        return this.runSingle(task);
+      }
+      const st = await json(start);
+      if (start.status === 409) {
+        task.duplicates = Array.isArray(st.duplicates) ? st.duplicates : [];
+        task.status = 'duplicate';
+        task.stage = undefined;
+        task.finished_at = Date.now();
+        this.notify();
+        return;
+      }
+      if (!start.ok) return fail(st.error || st.detail || `HTTP ${start.status}`);
+      task.server_upload_id = st.id;
+      const chunk: number = st.chunk_size;
+      const total = Math.ceil(file.size / chunk);
+      let n: number = st.parts + 1;
+      const t0 = performance.now();
+      let sent = 0;
+      while (n <= total) {
+        const offset = (n - 1) * chunk;
+        const len = Math.min(chunk, file.size - offset);
+        const bytes = await invoke<ArrayBuffer>('read_chunk', { path: file.path, offset, len });
+        const r = await this.retrying(task, () => window.fetch(url(`${st.id}/parts/${n}/`), {
+          method: 'PUT', headers: { ...headers, 'Content-Type': 'application/octet-stream' }, body: bytes,
+        }));
+        const body = await json(r);
+        if (r.status === 409 && typeof body.parts === 'number') { n = body.parts + 1; continue; }  // зсув — беремо стан ноди
+        if (!r.ok) return fail(body.error || body.detail || `HTTP ${r.status}`);
+        sent += len;
+        task.uploaded_bytes = body.received;
+        task.progress = Math.min(99, Math.round((body.received / file.size) * 100));
+        const s = (performance.now() - t0) / 1000;
+        task.speed_mbps = s > 0 ? sent / 1024 / 1024 / s : 0;
+        this.notify();
+        n += 1;
+      }
+      task.stage = 'finishing';
+      this.notify();
+      const done = await this.retrying(task, () => window.fetch(url(`${st.id}/complete/`), { method: 'POST', headers }));
+      const res = await json(done);
+      if (!done.ok) return fail(res.error || res.detail || `HTTP ${done.status}`);
+      task.status = 'done';
+      task.stage = undefined;
+      task.progress = 100;
+      task.finished_at = Date.now();
+      if (task.temp_zip) {
+        await invoke('remove_temp_zip', { path: task.temp_zip }).catch(() => {});
+        task.temp_zip = undefined;
+      }
+      this.notify();
+    } catch (e) {
+      fail(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /** Запит із повторами при обриві зв'язку / 5xx: пауза росте до 60 с, ~15 хв спроб на одну дію. */
+  private async retrying(task: UploadTask, send: () => Promise<Response>): Promise<Response> {
+    let wait = 2000;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const r = await send();
+        if (r.status < 500) {
+          if (task.stage === 'waiting_net') { task.stage = 'uploading'; this.notify(); }
+          return r;
+        }
+      } catch { /* мережа */ }
+      if (attempt >= 20) throw new Error('Немає зв\'язку з сервером — натисніть «Повторити», завантаження продовжиться з місця зупинки');
+      task.stage = 'waiting_net';
+      this.notify();
+      await new Promise(res => setTimeout(res, wait));
+      wait = Math.min(wait * 2, 60_000);
+    }
+  }
+
   async addFile(path: string, opts: {
     kind: ImagingKind;
     patient_id: string;
     patient_name: string;
     node_id: string;
+    /** Назва для показу й на сервері (папка КТ → «<папка>.zip», а не тимчасове ім'я) */
+    display_name?: string;
+    temp_zip?: boolean;
   }): Promise<UploadTask> {
-    const fileName = path.split(/[\\/]/).pop() || 'file';
+    const fileName = opts.display_name || path.split(/[\\/]/).pop() || 'file';
     const st = await stat(path);
+    const { display_name: _d, temp_zip, ...rest } = opts;
     return this.enqueue({
-      ...opts,
+      ...rest,
       files: [{ path, name: fileName, size: st.size }],
+      temp_zip: temp_zip ? path : undefined,
     });
   }
 }

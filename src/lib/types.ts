@@ -47,6 +47,13 @@ export interface UploadTask {
   finished_at?: number;
   force?: boolean;              // користувач підтвердив повторне завантаження
   duplicates?: DuplicateInfo[]; // знайдені дублі (status='duplicate')
+  // КТ частинами (20.11.2026): що зараз робимо, id завантаження на ноді (для докачування), SHA-256,
+  // тимчасовий архів папки (видаляємо після), скільки вже на сервері
+  stage?: 'zipping' | 'hashing' | 'uploading' | 'finishing' | 'waiting_net';
+  server_upload_id?: string;
+  sha256?: string;
+  temp_zip?: string;
+  uploaded_bytes?: number;
 }
 
 export interface AuthUser {
