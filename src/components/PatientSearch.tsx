@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { patients } from '../lib/api';
+import { PatientAvatar } from './PatientAvatar';
 import type { Patient } from '../lib/types';
 
 /**
@@ -24,8 +25,6 @@ async function find(q: string): Promise<Patient[]> {
   return (await patients.search(isNumber ? digits : q.trim())).results;
 }
 
-const initials = (name: string) =>
-  name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
 
 export function PatientSearch({ onPick }: { onPick: (p: Patient) => void }) {
   const [q, setQ] = useState('');
@@ -101,7 +100,7 @@ export function PatientSearch({ onPick }: { onPick: (p: Patient) => void }) {
               style={{ animationDelay: `${Math.min(i, 6) * 30}ms` }}
               onMouseEnter={() => setActive(i)}
               onClick={() => onPick(p)}>
-              <span className="omni-avatar">{initials(p.full_name)}</span>
+              <PatientAvatar id={p.id} name={p.full_name} className="omni-avatar" />
               <span className="omni-main">
                 <span className="omni-name">{p.full_name}</span>
                 <span className="omni-meta">

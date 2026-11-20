@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PatientSearch } from '../components/PatientSearch';
+import { PatientAvatar } from '../components/PatientAvatar';
 import { onDragHover, onTauriDrop } from '../lib/drop';
 import { classifyPaths, fileName, guessXrayKind, zipCtFolders } from '../lib/imaging';
 import { queue } from '../lib/upload';
@@ -22,8 +23,6 @@ export interface Incoming {
 
 type Notice = { tone: 'info' | 'warn' | 'ok'; text: string; progress?: number } | null;
 
-const initials = (name: string) =>
-  name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
 
 export function UnifiedMode({ nodeId, incoming }: { nodeId: string; incoming: Incoming | null }) {
   const [patient, setPatient] = useState<Patient | null>(null);
@@ -130,7 +129,7 @@ export function UnifiedMode({ nodeId, incoming }: { nodeId: string; incoming: In
         <div className="step-head"><span className="step-num">1</span>Пацієнт</div>
         {patient ? (
           <div className="patient-card" key={patient.id}>
-            <span className="patient-avatar">{initials(patient.full_name)}</span>
+            <PatientAvatar id={patient.id} name={patient.full_name} className="patient-avatar" />
             <span className="patient-main">
               <span className="patient-name">{patient.full_name}</span>
               <span className="patient-meta">
