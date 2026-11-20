@@ -29,7 +29,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
-tauri-plugin-http = "2"
+tauri-plugin-http = "=2.5.9"  # JS @tauri-apps/plugin-http 2.5.9; 2.9 несумісний — усі запити падали (0.3.0–0.3.1)
 tauri-plugin-shell = "2"
 tauri-plugin-store = "2"
 tauri-plugin-os = "2"
