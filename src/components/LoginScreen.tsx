@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { hostname } from '@tauri-apps/plugin-os';
 import { QRCodeSVG } from 'qrcode.react';
 import { auth } from '../lib/api';
-import { probeAllStatus } from '../lib/node-picker';
 import type { AuthUser, LoginNode } from '../lib/types';
 
 // Той самий бот, що й у web-фотопацієнті. Код для входу приходить у цей
@@ -13,11 +12,10 @@ interface Props {
   // Нода, через яку відбудеться вхід (авто-вибір: домашня → найшвидша).
   node: LoginNode | null;
   // Ручний вибір іншої ноди зі списку (перед введенням коду).
-  onPickNode: (n: LoginNode) => void;
   onLogin: (token: string, user: AuthUser, sessionExpiresAt?: string) => void;
 }
 
-export function LoginScreen({ node, onPickNode, onLogin }: Props) {
+export function LoginScreen({ node, onLogin }: Props) {
   // QR — основний вхід (як у UNIQO): скануєш, у боті «Увійти», і все. Номер + код — запасний.
   const [mode, setMode] = useState<'qr' | 'phone'>('qr');
   const [phone, setPhone] = useState('+380');
@@ -25,26 +23,6 @@ export function LoginScreen({ node, onPickNode, onLogin }: Props) {
   const [step, setStep] = useState<'phone' | 'code'>('phone');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [nodes, setNodes] = useState<LoginNode[]>([]);
-  const [loadingNodes, setLoadingNodes] = useState(false);
-
-  const togglePicker = async () => {
-    const next = !pickerOpen;
-    setPickerOpen(next);
-    if (next && nodes.length === 0) {
-      setLoadingNodes(true);
-      try {
-        const list = await probeAllStatus();
-        setNodes(list.map(n => ({ id: n.id, label: n.label, url: n.url, ms: n.ms })));
-      } catch (e: any) {
-        setError(`Ноди: ${e?.message || e}`);
-      } finally {
-        setLoadingNodes(false);
-      }
-    }
-  };
-
   const requestCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -81,14 +59,7 @@ export function LoginScreen({ node, onPickNode, onLogin }: Props) {
         <div className="brand-mark login-mark" aria-hidden="true">FP</div>
         <h1>FotoPacients · агент</h1>
 
-        <NodeBanner
-          node={node}
-          open={pickerOpen}
-          nodes={nodes}
-          loading={loadingNodes}
-          onToggle={togglePicker}
-          onPick={(n) => { onPickNode(n); setPickerOpen(false); }}
-        />
+        <NodeBanner node={node} />
 
         {mode === 'qr' ? (
           <QrLogin key={node?.id ?? 'none'} node={node} onLogin={onLogin} onUnsupported={() => setMode('phone')} />
@@ -228,53 +199,16 @@ function QrLogin({ node, onLogin, onUnsupported }: {
   );
 }
 
-// Банер активної ноди входу + згортний список для ручного вибору.
-function NodeBanner({
-  node, open, nodes, loading, onToggle, onPick,
-}: {
-  node: LoginNode | null;
-  open: boolean;
-  nodes: LoginNode[];
-  loading: boolean;
-  onToggle: () => void;
-  onPick: (n: LoginNode) => void;
-}) {
+// Нода обирається сама (своя мережа → інакше найшвидша); вручну не міняємо (20.11.2026)
+function NodeBanner({ node }: { node: LoginNode | null }) {
   return (
     <div className="login-node">
       <div className="login-node-row">
         <span className={`dot ${node ? (node.ms === null ? 'offline' : 'fast') : 'offline'}`} />
         <span className="login-node-label">
-          {node ? <>Вхід через <strong>{node.label}</strong></> : 'Пошук доступної ноди…'}
-          {node?.ms != null && <span className="muted small"> · {node.ms.toFixed(0)} мс</span>}
+          {node ? <>Вхід через <strong>{node.label}</strong></> : 'Немає звʼязку з нодою — перевірте мережу'}
         </span>
-        <button type="button" className="link" onClick={onToggle}>
-          {open ? 'сховати' : 'змінити ноду'}
-        </button>
       </div>
-      {open && (
-        <div className="login-node-list">
-          {loading && <div className="muted small">Перевірка нод…</div>}
-          {!loading && nodes.length === 0 && <div className="muted small">Ноди недоступні</div>}
-          {nodes.map(n => {
-            const reachable = n.ms !== null;
-            const active = node?.id === n.id;
-            return (
-              <button
-                key={n.id}
-                type="button"
-                className={`login-node-item ${active ? 'active' : ''}`}
-                disabled={!reachable}
-                onClick={() => reachable && onPick(n)}
-              >
-                <span className={`dot ${reachable ? (active ? 'active' : 'up') : 'down'}`} />
-                <strong>{n.label}</strong>
-                <span className="muted small node-url"> {n.url}</span>
-                <span className="ms">{reachable ? `${(n.ms ?? 0).toFixed(0)} мс` : 'недоступна'}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }

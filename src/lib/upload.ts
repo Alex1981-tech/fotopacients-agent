@@ -1,6 +1,7 @@
 import { readFile, stat } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
 import { load, Store } from '@tauri-apps/plugin-store';
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import type { ImagingKind, TaskStatus, UploadTask } from './types';
 import { getApi } from './api';
 
@@ -18,12 +19,27 @@ const HISTORY_LIMIT = 500;
 
 type Listener = (tasks: UploadTask[]) => void;
 
+const FINAL: TaskStatus[] = ['done', 'failed', 'duplicate'];
+
+/** Сповіщення Windows про результат (20.11.2026): вікно агента зазвичай згорнуте в трей. */
+async function osNotify(title: string, body: string) {
+  try {
+    let ok = await isPermissionGranted();
+    if (!ok) ok = (await requestPermission()) === 'granted';
+    if (ok) sendNotification({ title, body });
+  } catch (e) {
+    console.warn('notification failed', e);
+  }
+}
+
 class UploadQueue {
   private tasks = new Map<string, UploadTask>();
   private running = new Set<string>();
   private listeners = new Set<Listener>();
   private store: Store | null = null;
   private hydrating = false;
+  // Останній показаний статус задачі — сповіщаємо лише про перехід у кінцевий (не про історію зі старту)
+  private seen = new Map<string, TaskStatus>();
 
   /** Завантаження історії з диску при старті — викликається з App.tsx
       одразу після того як user залогінився. Безпечно викликати кілька разів. */
@@ -109,6 +125,15 @@ class UploadQueue {
   private notify() {
     const snap = this.list();
     for (const l of this.listeners) l(snap);
+    for (const t of snap) {
+      const prev = this.seen.get(t.id);
+      this.seen.set(t.id, t.status);
+      if (prev === undefined || prev === t.status || !FINAL.includes(t.status)) continue;
+      const what = `${t.files[0]?.name ?? 'Файл'} · ${t.patient_name}`;
+      if (t.status === 'done') void osNotify('Завантажено', what);
+      else if (t.status === 'failed') void osNotify('Не вдалося завантажити', `${what}${t.error ? ` — ${t.error}` : ''}`);
+      else void osNotify('Такий файл уже є', what);
+    }
     // Зберігаємо у persistent store. void щоб не блокувати notify.
     void this.persist();
   }

@@ -177,7 +177,7 @@ export function UnifiedMode({ nodeId, incoming }: { nodeId: string; incoming: In
               {dragOver ? 'Відпустіть, щоб додати' : 'Перетягніть сюди КТ або рентген'}
             </div>
             <div className="drop-hint">
-              КТ — папка або архів (zip, rar, 7z, isz) · рентген — зображення
+              КТ — папка або архів · рентген — фото
               {!patient && <><br />Пацієнта можна обрати й після</>}
             </div>
             <div className="drop-actions">
@@ -202,7 +202,7 @@ export function UnifiedMode({ nodeId, incoming }: { nodeId: string; incoming: In
 
 function UploadIcon() {
   return (
-    <svg className="drop-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg className="drop-icon" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><polyline points="7 9 12 4 17 9" /><line x1="12" y1="4" x2="12" y2="16" />
     </svg>
   );

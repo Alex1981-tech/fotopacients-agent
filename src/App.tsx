@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ClipboardToast } from './components/ClipboardToast';
 import { LoginScreen } from './components/LoginScreen';
-import { Settings } from './components/Settings';
 import { UploadQueue } from './components/UploadQueue';
 import { UnifiedMode, type Incoming } from './modes/UnifiedMode';
 import { setApi } from './lib/api';
 import { isWorkNode, pickFastest, probePinned, type NodeProbe } from './lib/node-picker';
+import { enable as enableAutostart, isEnabled as autostartEnabled } from '@tauri-apps/plugin-autostart';
 import { clearAuth, getSettings, setSetting } from './lib/store';
 import { startAutoUpdate, type UpdateStatus } from './lib/updater';
 import { queue } from './lib/upload';
@@ -45,7 +45,7 @@ export function App() {
   const [loginNode, setLoginNode] = useState<LoginNode | null>(null);
   const [sessionExpiresAt, setSessionExpiresAt] = useState<number | null>(null);
   const [gate, setGate] = useState<Gate | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ kind: 'idle' });
   // КТ/рентген з буфера обміну, які користувач вирішив завантажити.
   const [incoming, setIncoming] = useState<Incoming | null>(null);
@@ -73,7 +73,7 @@ export function App() {
     setSessionExpiresAt(null);
     setNodeMs(null);
     setGate(null);
-    setSettingsOpen(false);
+    setMenuOpen(false);
     setApi({ token: null });
     const fastest = await pickFastest();
     const ln = fastest ? toLoginNode(fastest) : null;
@@ -149,6 +149,13 @@ export function App() {
     return stop;
   }, []);
 
+  // Автозапуск із Windows — завжди, без вимикача в агенті (20.11.2026): вимкнути можна лише в Windows
+  useEffect(() => {
+    autostartEnabled()
+      .then(on => (on ? undefined : enableAutostart()))
+      .catch(e => console.error('[autostart]', e));
+  }, []);
+
   const handleLogin = async (tok: string, u: AuthUser, expiresAtIso?: string) => {
     const pin = loginNode
       ? { id: loginNode.id, label: loginNode.label, url: loginNode.url }
@@ -171,89 +178,58 @@ export function App() {
   };
 
   // Зміна ноди на екрані входу (ручний вибір зі списку).
-  const handlePickLoginNode = (n: LoginNode) => {
-    setLoginNode(n);
-    setApi({ baseUrl: n.url, token: null });
-  };
-
   if (!ready) return <div className="loading">Завантаження…</div>;
   if (!token || !user) {
     return (
       <LoginScreen
         node={loginNode}
-        onPickNode={handlePickLoginNode}
         onLogin={handleLogin}
       />
     );
   }
 
   const fullName = `${user.first_name} ${user.last_name}`.trim() || user.username;
-  const initials = (
-    (user.first_name?.[0] || '') + (user.last_name?.[0] || '')
-  ).toUpperCase() || user.username.slice(0, 2).toUpperCase();
   const offline = !pinned || nodeMs === null;
   const dotClass = offline ? 'offline' : nodeMs < 50 ? 'fast' : nodeMs < 200 ? 'mid' : 'slow';
-  // NodeProbe-сумісний об'єкт для Settings (читає лише currentNode.node.id).
-  const settingsNode: NodeProbe | null = pinned
-    ? { node: { ...pinned }, url: pinned.url, ms: nodeMs ?? 0 }
-    : null;
 
+  // Компактне вікно 420×640 (20.11.2026): одна колонка — пацієнт, файли, черга. Налаштувань немає:
+  // нода обирається сама, автозапуск завжди; у «⋯» — хто увійшов, нода, версія, «Вийти».
   return (
     <div className="app">
       <header className="bar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true">FP</span>
-          <span className="brand-name">FotoPacients</span>
-          <span className="brand-sub">агент</span>
-        </div>
+        <span className="brand-mark" aria-hidden="true">FP</span>
+        <span className="brand-name">FotoPacients</span>
         <div className="bar-spacer" />
         <UpdatePill status={updateStatus} />
-        <span className={`node-chip ${dotClass}`}
-          title={pinned ? `${pinned.label} · ${pinned.url}` : 'Без звʼязку'}>
+        <span className={`node-chip ${dotClass}`} title={pinned ? `${pinned.label} · ${pinned.url}` : 'Без звʼязку'}>
           <span className={`dot ${dotClass}`} />
           <span className="node-label">{pinned ? pinned.label : 'Без звʼязку'}</span>
-          {pinned && <span className="node-ms">{nodeMs !== null ? `${nodeMs.toFixed(0)} мс` : 'недоступна'}</span>}
         </span>
-        <button type="button" className="user-btn" onClick={() => setSettingsOpen(true)}
-          title={`${fullName} · налаштування`} aria-label="Налаштування">
-          <span className="avatar">{initials}</span>
-          <span className="user-name">{fullName}</span>
-          <SettingsIcon />
-        </button>
+        <div className="menu-wrap">
+          <button type="button" className="icon-btn menu-btn" onClick={() => setMenuOpen(o => !o)}
+            aria-label="Меню" aria-expanded={menuOpen}>⋯</button>
+          {menuOpen && (
+            <>
+              <div className="menu-scrim" onClick={() => setMenuOpen(false)} />
+              <div className="menu" role="menu">
+                <div className="menu-user">{fullName}</div>
+                <div className="menu-meta">
+                  {pinned ? `${pinned.label} · ${nodeMs !== null ? `${nodeMs.toFixed(0)} мс` : 'недоступна'}` : 'Без звʼязку'}
+                </div>
+                <div className="menu-meta">Версія {APP_VERSION}</div>
+                <button type="button" className="menu-item danger" role="menuitem" onClick={() => void goToLogin()}>Вийти</button>
+              </div>
+            </>
+          )}
+        </div>
       </header>
 
       <main className="ws">
-        <section className="ws-main">
-          <UnifiedMode nodeId={pinned?.id || 'unknown'} incoming={incoming} />
-        </section>
-        <aside className="ws-side">
-          <UploadQueue />
-        </aside>
+        <UnifiedMode nodeId={pinned?.id || 'unknown'} incoming={incoming} />
+        <UploadQueue />
       </main>
 
       <ClipboardToast onOpen={(paths) => setIncoming(prev => ({ seq: (prev?.seq ?? 0) + 1, paths }))} />
-
-      {settingsOpen && (
-        <div className="modal-overlay" onClick={() => setSettingsOpen(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-head">
-              <h2>Налаштування <span className="muted small">v{APP_VERSION}</span></h2>
-              <button className="icon-btn" onClick={() => setSettingsOpen(false)} aria-label="Закрити">✕</button>
-            </div>
-            <div className="modal-body">
-              <Settings
-                user={user}
-                currentNode={settingsNode}
-                onNodesRefresh={async () => {
-                  // Лише оновлюємо ping прибитої ноди — НЕ перемикаємось.
-                  if (pinned) setNodeMs(await probePinned(pinned.url));
-                }}
-                onLogout={goToLogin}
-              />
-            </div>
-          </div>
-        </div>
-      )}
 
       {gate && <ReloginGate gate={gate} onRelogin={goToLogin} />}
     </div>
@@ -300,13 +276,4 @@ function UpdatePill({ status }: { status: UpdateStatus }) {
       break;
   }
   return <span className={cls} title={title || text}>{text}</span>;
-}
-
-function SettingsIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-    </svg>
-  );
 }
