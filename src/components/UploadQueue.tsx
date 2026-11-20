@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { queue } from '../lib/upload';
+import { queue, taskTitle } from '../lib/upload';
 import { KIND_LABEL, type UploadTask } from '../lib/types';
 
 function fmtSize(bytes: number): string {
@@ -36,7 +36,7 @@ function stageText(t: UploadTask): string {
 type Filter = 'all' | 'active' | 'done' | 'failed';
 const isActive = (t: UploadTask) => t.status === 'queued' || t.status === 'uploading';
 
-export function UploadQueue() {
+export function UploadQueue({ onClose }: { onClose?: () => void }) {
   const [tasks, setTasks] = useState<UploadTask[]>([]);
   const [filter, setFilter] = useState<Filter>('all');
   useEffect(() => queue.subscribe(setTasks), []);
@@ -58,6 +58,7 @@ export function UploadQueue() {
             Прибрати готові
           </button>
         )}
+        {onClose && <button type="button" className="icon-btn sheet-close" onClick={onClose} aria-label="Закрити">✕</button>}
       </div>
 
       {tasks.length > 0 && (
@@ -95,7 +96,7 @@ function TaskRow({ t }: { t: UploadTask }) {
     <li className={`task task-${t.status} ${t.stage === 'waiting_net' ? 'task-net' : ''}`}>
       <div className="task-top">
         <span className={`kind kind-${t.kind ?? 'ct'}`}>{t.kind ? KIND_LABEL[t.kind] : '—'}</span>
-        <span className="task-name" title={t.files[0].name}>{t.files[0].name}</span>
+        <span className="task-name" title={t.files.map(f => f.name).join('\n')}>{taskTitle(t)}</span>
         <span className="task-actions">
           {(t.status === 'failed') && (
             <button type="button" className="icon" title="Повторити" aria-label="Повторити" onClick={() => queue.retry(t.id)}><RetryIcon /></button>

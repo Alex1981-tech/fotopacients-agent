@@ -9,6 +9,7 @@ import { enable as enableAutostart, isEnabled as autostartEnabled } from '@tauri
 import { clearAuth, getSettings, setSetting } from './lib/store';
 import { startAutoUpdate, type UpdateStatus } from './lib/updater';
 import { queue } from './lib/upload';
+import type { UploadTask } from './lib/types';
 import type { AuthUser, LoginNode, PinnedNode } from './lib/types';
 import pkg from '../package.json';
 
@@ -46,6 +47,8 @@ export function App() {
   const [sessionExpiresAt, setSessionExpiresAt] = useState<number | null>(null);
   const [gate, setGate] = useState<Gate | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [tasks, setTasks] = useState<UploadTask[]>([]);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ kind: 'idle' });
   // КТ/рентген з буфера обміну, які користувач вирішив завантажити.
   const [incoming, setIncoming] = useState<Incoming | null>(null);
@@ -144,6 +147,8 @@ export function App() {
     return () => clearInterval(t);
   }, [token, sessionExpiresAt]);
 
+  useEffect(() => queue.subscribe(setTasks), []);
+
   useEffect(() => {
     const stop = startAutoUpdate(setUpdateStatus);
     return stop;
@@ -192,32 +197,41 @@ export function App() {
   const offline = !pinned || nodeMs === null;
   const dotClass = offline ? 'offline' : nodeMs < 50 ? 'fast' : nodeMs < 200 ? 'mid' : 'slow';
 
-  // Компактне вікно 420×640 (20.11.2026): одна колонка — пацієнт, файли, черга. Налаштувань немає:
-  // нода обирається сама, автозапуск завжди; у «⋯» — хто увійшов, нода, версія, «Вийти».
+  const active = tasks.filter(t => t.status === 'queued' || t.status === 'uploading').length;
+  const failed = tasks.filter(t => t.status === 'failed' || t.status === 'duplicate').length;
+
+  // Компактне вікно 420×640 (20.11.2026): пацієнт і зона для файлів. Хто увійшов і «Вийти» — завжди на виду;
+  // черга завантажень, нода й версія — у меню «⋯» (черга відкривається аркушем поверх).
   return (
     <div className="app">
       <header className="bar">
-        <span className="brand-mark" aria-hidden="true">FP</span>
-        <span className="brand-name">FotoPacients</span>
+        <img className="brand-logo" src="/uniqo-mark.png" alt="" aria-hidden="true" />
+        <span className="bar-user" title={fullName}>{fullName}</span>
         <div className="bar-spacer" />
         <UpdatePill status={updateStatus} />
-        <span className={`node-chip ${dotClass}`} title={pinned ? `${pinned.label} · ${pinned.url}` : 'Без звʼязку'}>
-          <span className={`dot ${dotClass}`} />
-          <span className="node-label">{pinned ? pinned.label : 'Без звʼязку'}</span>
-        </span>
+        <button type="button" className="btn-ghost bar-logout" onClick={() => void goToLogin()}>Вийти</button>
         <div className="menu-wrap">
           <button type="button" className="icon-btn menu-btn" onClick={() => setMenuOpen(o => !o)}
-            aria-label="Меню" aria-expanded={menuOpen}>⋯</button>
+            aria-label="Меню" aria-expanded={menuOpen}>
+            ⋯
+            {(active > 0 || failed > 0) && <span className={`menu-badge ${failed ? 'is-bad' : ''}`} />}
+          </button>
           {menuOpen && (
             <>
               <div className="menu-scrim" onClick={() => setMenuOpen(false)} />
               <div className="menu" role="menu">
-                <div className="menu-user">{fullName}</div>
+                <button type="button" className="menu-item" role="menuitem"
+                  onClick={() => { setMenuOpen(false); setQueueOpen(true); }}>
+                  Завантаження
+                  {active > 0 && <span className="menu-count">{active}</span>}
+                  {failed > 0 && <span className="menu-count is-bad">{failed}</span>}
+                </button>
+                <div className="menu-sep" />
                 <div className="menu-meta">
+                  <span className={`dot ${dotClass}`} />{' '}
                   {pinned ? `${pinned.label} · ${nodeMs !== null ? `${nodeMs.toFixed(0)} мс` : 'недоступна'}` : 'Без звʼязку'}
                 </div>
                 <div className="menu-meta">Версія {APP_VERSION}</div>
-                <button type="button" className="menu-item danger" role="menuitem" onClick={() => void goToLogin()}>Вийти</button>
               </div>
             </>
           )}
@@ -226,8 +240,15 @@ export function App() {
 
       <main className="ws">
         <UnifiedMode nodeId={pinned?.id || 'unknown'} incoming={incoming} />
-        <UploadQueue />
       </main>
+
+      {queueOpen && (
+        <div className="sheet-overlay" onClick={() => setQueueOpen(false)}>
+          <div className="sheet" onClick={e => e.stopPropagation()}>
+            <UploadQueue onClose={() => setQueueOpen(false)} />
+          </div>
+        </div>
+      )}
 
       <ClipboardToast onOpen={(paths) => setIncoming(prev => ({ seq: (prev?.seq ?? 0) + 1, paths }))} />
 

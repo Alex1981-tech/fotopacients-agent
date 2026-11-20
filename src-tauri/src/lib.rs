@@ -264,6 +264,28 @@ fn probe_ct(path: String) -> String {
     }
 }
 
+/// Агент перейменовано FotoPacients Agent → UNIQO Agent (0.4.1). Ідентифікатор той самий, тож вхід і
+/// історія лишаються, але NSIS ставить нову назву в нову теку, а старий запис автозапуску продовжив би
+/// запускати стару копію. Прибираємо: значення автозапуску й тихо видаляємо стару інсталяцію (дані не чіпає).
+#[cfg(windows)]
+fn remove_legacy_install() {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    const LEGACY: &str = "FotoPacients Agent";
+    let _ = std::process::Command::new("reg")
+        .args(["delete", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "/v", LEGACY, "/f"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let uninstaller = std::path::Path::new(&local).join(LEGACY).join("uninstall.exe");
+        let current = std::env::current_exe().ok();
+        let is_self = current.as_deref().map_or(false, |c| c.starts_with(std::path::Path::new(&local).join(LEGACY)));
+        if uninstaller.exists() && !is_self {
+            let _ = std::process::Command::new(uninstaller).arg("/S").creation_flags(CREATE_NO_WINDOW).spawn();
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -293,6 +315,7 @@ pub fn run() {
 
             let _tray = TrayIconBuilder::new()
                 .menu(&menu)
+                .tooltip("UNIQO Agent")
                 .icon(app.default_window_icon().unwrap().clone())
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => show_main_window(app),
@@ -317,6 +340,9 @@ pub fn run() {
             if !args.contains(&"--hidden".to_string()) {
                 show_main_window(&app.handle());
             }
+
+            #[cfg(windows)]
+            std::thread::spawn(remove_legacy_install);
 
             Ok(())
         })

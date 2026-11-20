@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
 import { PatientSearch } from '../components/PatientSearch';
 import { onDragHover, onTauriDrop } from '../lib/drop';
-import { ARCHIVE_EXT, IMAGE_EXT, classifyPaths, fileName, zipCtFolders } from '../lib/imaging';
+import { classifyPaths, fileName, guessXrayKind, zipCtFolders } from '../lib/imaging';
 import { queue } from '../lib/upload';
-import type { ImagingKind, Patient } from '../lib/types';
+import type { Patient } from '../lib/types';
+
+type XrayKind = 'panoramic' | 'periapical';
 
 // Агент вантажить лише КТ і рентгени пацієнта — їх потім бачить пацієнт у міні-аппі.
 // КТ — папка/архів з DICOM (папку пакуємо в .zip), рентген — зображення, тип (панорама / прицільний)
 // обирає людина. Інші файли відхиляються ще тут.
 //
 // Екран — два кроки зверху вниз (20.11.2026): «Пацієнт» (один рядок пошуку) → «Файли» (зона).
-// Файли можна кинути й до вибору пацієнта — вони чекають.
+// Файли можна кинути й до вибору пацієнта — вони чекають. Файли лише перетягуванням (кнопки прибрано 20.11.2026);
+// кілька прицільних разом — одна група. Щойно знімки в черзі, пацієнт скидається — наступний не піде не тому.
 
 export interface Incoming {
   seq: number;
@@ -27,7 +29,8 @@ export function UnifiedMode({ nodeId, incoming }: { nodeId: string; incoming: In
   const [patient, setPatient] = useState<Patient | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   const [waiting, setWaiting] = useState<string[]>([]);
-  const [pendingXrays, setPendingXrays] = useState<string[]>([]);
+  // Рентгени, що чекають підтвердження типу; можна кинути разом з архівом КТ (архів іде в чергу одразу)
+  const [pendingXrays, setPendingXrays] = useState<{ path: string; kind: XrayKind }[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -57,9 +60,13 @@ export function UnifiedMode({ nodeId, incoming }: { nodeId: string; incoming: In
           await queue.addFile(f.path, { kind: 'ct', patient_id: p.id, patient_name: p.full_name, node_id: nodeId,
                                         display_name: f.name, temp_zip: f.temp });
         }
-        if (!c.rejected.length) say({ tone: 'ok', text: `КТ у черзі: ${prepared.length}` }, 2500);
+        if (!c.rejected.length) say({ tone: 'ok', text: `КТ у черзі: ${prepared.length} · ${p.full_name}` }, 3500);
+        if (!c.images.length) setPatient(null);
       }
-      if (c.images.length) setPendingXrays(prev => [...prev, ...c.images]);
+      if (c.images.length) {
+        const guessed = await Promise.all(c.images.map(async path => ({ path, kind: await guessXrayKind(path) })));
+        setPendingXrays(prev => [...prev, ...guessed]);
+      }
     } finally {
       setBusy(false);
     }
@@ -82,14 +89,22 @@ export function UnifiedMode({ nodeId, incoming }: { nodeId: string; incoming: In
     }
   };
 
-  const chooseKind = async (kind: ImagingKind) => {
+  const setKind = (path: string, kind: XrayKind) =>
+    setPendingXrays(prev => prev.map(x => (x.path === path ? { ...x, kind } : x)));
+
+  // Панорами й прицільні — по одному завданню на тип (прицільні йдуть групою)
+  const uploadXrays = async () => {
     if (!patient) return;
-    const paths = pendingXrays;
+    const items = pendingXrays;
     setPendingXrays([]);
-    for (const path of paths) {
-      await queue.addFile(path, { kind, patient_id: patient.id, patient_name: patient.full_name, node_id: nodeId });
+    for (const kind of ['panoramic', 'periapical'] as const) {
+      const paths = items.filter(x => x.kind === kind).map(x => x.path);
+      if (paths.length) {
+        await queue.addFiles(paths, { kind, patient_id: patient.id, patient_name: patient.full_name, node_id: nodeId });
+      }
     }
-    say({ tone: 'ok', text: `Рентген у черзі: ${paths.length}` }, 2500);
+    say({ tone: 'ok', text: `Рентген у черзі: ${items.length} · ${patient.full_name}` }, 3500);
+    setPatient(null);
   };
 
   useEffect(() => onTauriDrop(handleFiles), [patient, nodeId]);
@@ -108,23 +123,6 @@ export function UnifiedMode({ nodeId, incoming }: { nodeId: string; incoming: In
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [patient, pendingXrays.length]);
-
-  const onPickFiles = async () => {
-    const selected = await open({
-      multiple: true,
-      filters: [
-        { name: 'Рентген / КТ-архів', extensions: [...IMAGE_EXT, ...ARCHIVE_EXT] },
-        { name: 'Рентген (зображення)', extensions: IMAGE_EXT },
-        { name: 'КТ-архів', extensions: ARCHIVE_EXT },
-      ],
-    });
-    if (selected) await handleFiles(Array.isArray(selected) ? selected : [selected]);
-  };
-
-  const onPickFolder = async () => {
-    const selected = await open({ directory: true, multiple: true });
-    if (selected) await handleFiles(Array.isArray(selected) ? selected : [selected]);
-  };
 
   return (
     <div className="uploader">
@@ -158,16 +156,27 @@ export function UnifiedMode({ nodeId, incoming }: { nodeId: string; incoming: In
 
         {pendingXrays.length > 0 ? (
           <div className="kind-card">
-            <div className="kind-title">Що це за знімок?</div>
-            <div className="kind-files">{pendingXrays.map(fileName).join(', ')}</div>
-            <div className="kind-actions">
-              <button type="button" className="kind-btn" onClick={() => chooseKind('panoramic')}>
-                <PanoIcon /><span>Панорама</span>
-              </button>
-              <button type="button" className="kind-btn" onClick={() => chooseKind('periapical')}>
-                <ToothIcon /><span>Прицільний</span>
-              </button>
-            </div>
+            <div className="kind-title">{pendingXrays.length > 1 ? `Знімки: ${pendingXrays.length}` : 'Що це за знімок?'}</div>
+            <ul className="kind-list">
+              {pendingXrays.map(x => (
+                <li key={x.path} className="kind-row">
+                  <span className="kind-file" title={x.path}>{fileName(x.path)}</span>
+                  <span className="kind-seg" role="radiogroup">
+                    <button type="button" role="radio" aria-checked={x.kind === 'panoramic'}
+                      className={x.kind === 'panoramic' ? 'is-on' : ''} onClick={() => setKind(x.path, 'panoramic')}>
+                      <PanoIcon />Панорама
+                    </button>
+                    <button type="button" role="radio" aria-checked={x.kind === 'periapical'}
+                      className={x.kind === 'periapical' ? 'is-on' : ''} onClick={() => setKind(x.path, 'periapical')}>
+                      <ToothIcon />Прицільний
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <button type="button" className="btn kind-go" disabled={!patient} onClick={() => void uploadXrays()}>
+              {patient ? 'Завантажити' : 'Спершу оберіть пацієнта'}
+            </button>
             <button type="button" className="btn-link" onClick={() => setPendingXrays([])}>Скасувати</button>
           </div>
         ) : (
@@ -177,12 +186,8 @@ export function UnifiedMode({ nodeId, incoming }: { nodeId: string; incoming: In
               {dragOver ? 'Відпустіть, щоб додати' : 'Перетягніть сюди КТ або рентген'}
             </div>
             <div className="drop-hint">
-              КТ — папка або архів · рентген — фото
+              Архів КТ, панорама або прицільні — можна кілька одразу
               {!patient && <><br />Пацієнта можна обрати й після</>}
-            </div>
-            <div className="drop-actions">
-              <button type="button" className="btn" onClick={onPickFiles}>Обрати файли</button>
-              <button type="button" className="btn btn-soft" onClick={onPickFolder}>Папка КТ</button>
             </div>
           </div>
         )}

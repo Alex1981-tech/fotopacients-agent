@@ -79,6 +79,20 @@ export async function zipCtFolders(
 
 const MAX_XRAY_PROBE_BYTES = 80 * 1024 * 1024;
 
+/** Панорама чи прицільний — за пропорціями: панорама приблизно 2:1, прицільний ≈ 4:3 або вертикальний.
+ *  Це лише підказка — людина перемикає тип перед завантаженням. */
+export async function guessXrayKind(path: string): Promise<'panoramic' | 'periapical'> {
+  try {
+    if ((await stat(path)).size > MAX_XRAY_PROBE_BYTES) return 'periapical';
+    const bitmap = await createImageBitmap(new Blob([await readFile(path)]));
+    const ratio = bitmap.width / bitmap.height;
+    bitmap.close();
+    return ratio >= 1.7 ? 'panoramic' : 'periapical';
+  } catch {
+    return 'periapical';
+  }
+}
+
 /**
  * Чи схоже зображення на рентген: рентгенівські знімки — у відтінках сірого.
  * Потрібно, щоб агент не вискакивав з трею на кожне скопійоване фото.

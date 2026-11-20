@@ -1,5 +1,5 @@
 
-name: Release FotoPacients Agent
+name: Release UNIQO Agent
 
 on:
   push:
@@ -40,8 +40,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         with:
           tagName: v__VERSION__
-          releaseName: FotoPacients Agent v__VERSION__
-          releaseBody: 'Нова версія FotoPacients Agent для Windows. Auto-update.'
+          releaseName: UNIQO Agent v__VERSION__
+          releaseBody: 'Нова версія UNIQO Agent для Windows. Auto-update.'
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: false
@@ -88,7 +88,7 @@ jobs:
 
           $json = @{
             version = $version
-            notes = "FotoPacients Agent $tag"
+            notes = "UNIQO Agent $tag"
             pub_date = $pubDate
             platforms = @{
               "windows-x86_64" = @{

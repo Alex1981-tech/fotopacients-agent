@@ -1,4 +1,4 @@
-/* FotoPacients Agent — iOS-стиль (як photo.vidnova.app) */
+/* UNIQO Agent — iOS-стиль (як photo.vidnova.app) */
 
 :root {
   --primary: #7c90de;
@@ -479,6 +479,31 @@ body { background: var(--surface-2); }
 .menu-item { display: block; width: 100%; margin-top: 8px; padding: 8px; border-radius: 8px; text-align: left; font-weight: 550; }
 .menu-item:hover { background: var(--hover); }
 .menu-item.danger { color: var(--err); }
+.menu-item { display: flex; align-items: center; gap: 6px; margin-top: 0; }
+.menu-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--primary-soft); color: var(--primary-strong); font-size: 11.5px; text-align: center; }
+.menu-count + .menu-count { margin-left: 4px; }
+.menu-count.is-bad { background: rgba(255, 69, 58, 0.12); color: var(--err); }
+.menu-sep { height: 1px; margin: 6px 0; background: var(--line); }
+.menu-meta { display: flex; align-items: center; gap: 4px; padding: 2px 8px; }
+.menu-btn { position: relative; }
+.menu-badge { position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--primary); }
+.menu-badge.is-bad { background: var(--err); }
+
+/* Хто увійшов і «Вийти» — завжди в шапці */
+.bar-user { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 14px; }
+.bar-logout { flex-shrink: 0; height: 30px; padding: 0 10px; color: var(--err); }
+
+/* Черга — аркуш поверх екрана з меню «⋯» */
+.sheet-overlay { position: fixed; inset: 0; z-index: 50; background: rgba(15, 23, 42, 0.28); display: flex; align-items: flex-end; }
+.sheet {
+  width: 100%; max-height: calc(100% - 52px); overflow-y: auto; padding: 14px 12px 16px;
+  background: var(--surface); border-radius: 16px 16px 0 0; box-shadow: 0 -12px 32px rgba(15, 23, 42, 0.18);
+  animation: sheet-in 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } }
+.sheet-close { width: 30px; height: 30px; border-radius: 8px; color: var(--text-muted); }
+.sheet-close:hover { background: var(--hover); }
+@media (prefers-reduced-motion: reduce) { .sheet { animation: none; } }
 
 /* ── Кроки ── */
 .uploader { display: flex; flex-direction: column; gap: 12px; }
@@ -560,8 +585,9 @@ body { background: var(--surface-2); }
 .drop.is-busy { opacity: 0.7; pointer-events: none; }
 .drop-icon { color: var(--primary); transition: transform var(--t) var(--ease-out); }
 .drop.is-over .drop-icon { transform: translateY(-3px); }
-.drop-title { font-size: 15px; font-weight: 600; }
-.drop-hint { font-size: 12px; color: var(--text-muted); line-height: 1.45; }
+.drop-title { font-size: 15px; font-weight: 600; opacity: 0.55; }
+.drop-hint { font-size: 12px; color: var(--text-muted); line-height: 1.45; opacity: 0.6; }
+.drop.is-over .drop-title, .drop.is-over .drop-hint { opacity: 1; }
 .drop-actions { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; justify-content: center; }
 
 /* ── Тип рентгену ── */
@@ -578,6 +604,14 @@ body { background: var(--surface-2); }
   transition: border-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
 }
 .kind-btn svg { color: var(--primary); }
+.kind-list { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+.kind-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 10px; background: var(--surface); }
+.kind-file { flex: 1; min-width: 0; text-align: left; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kind-seg { display: inline-flex; flex-shrink: 0; padding: 2px; border-radius: 9px; background: var(--surface-2); }
+.kind-seg button { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 7px; font-size: 12px; color: var(--text-muted); }
+.kind-seg button svg { width: 14px; height: 14px; }
+.kind-seg button.is-on { background: var(--surface); color: var(--primary-strong); font-weight: 600; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12); }
+.kind-go { width: 100%; }
 .kind-btn:hover:not(:disabled) { border-color: var(--primary); background: var(--surface); transform: translateY(-1px); }
 
 /* ── Повідомлення під зоною ── */
@@ -596,6 +630,7 @@ body { background: var(--surface-2); }
 /* Кроки й черга — картками на сірому тлі вікна */
 .uploader, .queue { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
 .queue-head { display: flex; align-items: center; justify-content: space-between; }
+.queue-head .btn-link { margin-left: auto; }
 .queue-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
 .qseg { display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--surface-2); }
 .qseg button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; padding: 0 6px; font-size: 12.5px; color: var(--text-muted); border-radius: 8px; }
@@ -660,3 +695,13 @@ body { background: var(--surface-2); }
 .login-hint { margin-top: 10px; font-size: 12.5px; color: var(--text-muted); line-height: 1.5; text-align: left; }
 @keyframes shimmer-bg { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @keyframes pop { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: none; } }
+
+/* Без черги на екрані (20.11.2026): зона для файлів займає весь вільний простір */
+.ws > .uploader { flex: 1; }
+.step-files { flex: 1; min-height: 0; }
+.step-files .drop { flex: 1; }
+.sheet .queue { border: 0; padding: 0; }
+
+/* Знак UNIQO замість «FP» (перейменування 20.11.2026) */
+.brand-logo { flex-shrink: 0; width: 28px; height: 28px; object-fit: contain; }
+.brand-logo.login-logo { width: 56px; height: 56px; margin: 0 auto 10px; display: block; }

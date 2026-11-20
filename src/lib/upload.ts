@@ -129,7 +129,7 @@ class UploadQueue {
       const prev = this.seen.get(t.id);
       this.seen.set(t.id, t.status);
       if (prev === undefined || prev === t.status || !FINAL.includes(t.status)) continue;
-      const what = `${t.files[0]?.name ?? 'Файл'} · ${t.patient_name}`;
+      const what = `${taskTitle(t)} · ${t.patient_name}`;
       if (t.status === 'done') void osNotify('Завантажено', what);
       else if (t.status === 'failed') void osNotify('Не вдалося завантажити', `${what}${t.error ? ` — ${t.error}` : ''}`);
       else void osNotify('Такий файл уже є', what);
@@ -469,7 +469,23 @@ class UploadQueue {
       temp_zip: temp_zip ? path : undefined,
     });
   }
+
+  /** Кілька рентгенів одним завданням (група прицільних) — сервер приймає до 50 за раз */
+  async addFiles(paths: string[], opts: { kind: ImagingKind; patient_id: string; patient_name: string; node_id: string }) {
+    for (let i = 0; i < paths.length; i += 50) {
+      const files = await Promise.all(paths.slice(i, i + 50).map(async path => ({
+        path, name: path.split(/[\\/]/).pop() || 'file', size: (await stat(path)).size,
+      })));
+      this.enqueue({ ...opts, files });
+    }
+  }
 }
 
 export const queue = new UploadQueue();
+
+/** «знімок.jpg» або «знімок.jpg +3» для групи прицільних */
+export function taskTitle(t: UploadTask): string {
+  const first = t.files[0]?.name ?? 'Файл';
+  return t.files.length > 1 ? `${first} +${t.files.length - 1}` : first;
+}
 export type { TaskStatus };

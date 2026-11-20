@@ -56,8 +56,8 @@ export function LoginScreen({ node, onLogin }: Props) {
   return (
     <div className="login-screen">
       <div className="login-card">
-        <div className="brand-mark login-mark" aria-hidden="true">FP</div>
-        <h1>FotoPacients · агент</h1>
+        <img className="brand-logo login-logo" src="/uniqo-mark.png" alt="" aria-hidden="true" />
+        <h1>UNIQO · агент</h1>
 
         <NodeBanner node={node} />
 

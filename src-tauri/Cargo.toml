@@ -1,7 +1,7 @@
 [package]
 name = "fotopacients-agent"
 version = "0.1.0"
-description = "FotoPacients Agent — Windows uploader for CT/Analysis"
+description = "UNIQO Agent — Windows uploader for CT and X-ray"
 authors = ["Alex <alex1981tech@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/Alex1981-tech/fotopacients-agent"
