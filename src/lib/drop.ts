@@ -3,15 +3,16 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 type DropHandler = (paths: string[]) => void;
 
 let activeHandler: DropHandler | null = null;
-let unlistenFn: (() => void) | null = null;
+// Promise, а не результат: onTauriDrop і onDragHover кличуть ensureListener в одному тіку,
+// і перевірка результату до завершення await реєструвала два слухачі → кожен файл двічі.
+let listenerReady: Promise<unknown> | null = null;
 // Файл тримають над вікном — підсвічуємо зону (Tauri не дає HTML5 dragover у webview)
 const hoverListeners = new Set<(over: boolean) => void>();
 const setHover = (over: boolean) => hoverListeners.forEach(fn => fn(over));
 
-async function ensureListener() {
-  if (unlistenFn) return;
-  const wv = getCurrentWebview();
-  unlistenFn = await wv.onDragDropEvent((event) => {
+function ensureListener() {
+  if (listenerReady) return;
+  listenerReady = getCurrentWebview().onDragDropEvent((event) => {
     const type = event.payload.type;
     if (type === 'enter' || type === 'over') { setHover(true); return; }
     setHover(false);
@@ -29,7 +30,7 @@ async function ensureListener() {
  * при unmount; активним лишається лише змонтований компонент.
  */
 export function onTauriDrop(handler: DropHandler): () => void {
-  void ensureListener();
+  ensureListener();
   activeHandler = handler;
   return () => {
     if (activeHandler === handler) activeHandler = null;
@@ -38,7 +39,7 @@ export function onTauriDrop(handler: DropHandler): () => void {
 
 /** Підписка на «файл над вікном» (для підсвічування зони). */
 export function onDragHover(fn: (over: boolean) => void): () => void {
-  void ensureListener();
+  ensureListener();
   hoverListeners.add(fn);
   return () => { hoverListeners.delete(fn); };
 }
